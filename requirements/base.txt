@@ -1,0 +1,34 @@
+# Core Django
+Django==5.1.*
+djangorestframework==3.15.*
+djangorestframework-simplejwt==5.3.*
+django-cors-headers==4.4.*
+django-filter==24.*
+drf-spectacular==0.27.*
+
+# Database
+psycopg[binary]==3.2.*
+pgvector==0.3.*
+
+# Environment
+django-environ==0.11.*
+
+# Security
+argon2-cffi==23.*
+
+# Media
+Pillow==10.4.*
+
+# Payments
+stripe==10.*
+
+# Async tasks
+celery==5.4.*
+redis==5.0.*
+django-celery-beat==2.7.*
+
+# PDF generation (>=69 required for pydyf 0.12+ compatibility on Python 3.14)
+weasyprint>=69.0,<70
+
+# Utils
+python-slugify==8.*

@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Comprobante {{ receipt_number }}</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 2cm;
+        }
+
+        body {
+            font-family: 'Helvetica', 'Arial', sans-serif;
+            font-size: 10pt;
+            line-height: 1.4;
+            color: #333;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #000;
+            padding-bottom: 15px;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 18pt;
+            font-weight: bold;
+        }
+
+        .header .company-info {
+            font-size: 9pt;
+            margin-top: 5px;
+        }
+
+        .receipt-info {
+            margin-bottom: 20px;
+            display: table;
+            width: 100%;
+        }
+
+        .receipt-info .left,
+        .receipt-info .right {
+            display: table-cell;
+            width: 50%;
+            vertical-align: top;
+        }
+
+        .receipt-info .right {
+            text-align: right;
+        }
+
+        .info-row {
+            margin: 3px 0;
+        }
+
+        .info-row .label {
+            font-weight: bold;
+        }
+
+        .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+
+        .items-table th {
+            background-color: #f0f0f0;
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+            font-weight: bold;
+        }
+
+        .items-table td {
+            border: 1px solid #ddd;
+            padding: 6px 8px;
+        }
+
+        .items-table .text-right {
+            text-align: right;
+        }
+
+        .items-table .text-center {
+            text-align: center;
+        }
+
+        .totals {
+            float: right;
+            width: 300px;
+            margin-top: 10px;
+        }
+
+        .totals-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 10px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .totals-row.grand-total {
+            font-weight: bold;
+            font-size: 12pt;
+            background-color: #f0f0f0;
+            border: 2px solid #000;
+            border-bottom: 2px solid #000;
+        }
+
+        .totals-row .label {
+            text-align: left;
+        }
+
+        .totals-row .amount {
+            text-align: right;
+        }
+
+        .payments {
+            clear: both;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+        }
+
+        .payments h3 {
+            margin: 0 0 10px 0;
+            font-size: 11pt;
+        }
+
+        .payment-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 3px 0;
+        }
+
+        .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            text-align: center;
+            font-size: 8pt;
+            color: #666;
+        }
+
+        .qr-code {
+            margin: 20px 0;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>{{ company.name }}</h1>
+        <div class="company-info">
+            NIT: {{ company.nit }}<br>
+            {{ company.address }}<br>
+            Tel: {{ company.phone }}
+        </div>
+    </div>
+
+    <div class="receipt-info">
+        <div class="left">
+            <div class="info-row">
+                <span class="label">Comprobante:</span>
+                {{ receipt_number }}
+            </div>
+            <div class="info-row">
+                <span class="label">Orden:</span>
+                {{ order.code }}
+            </div>
+            <div class="info-row">
+                <span class="label">Fecha:</span>
+                {{ generated_at|date:"d/m/Y H:i" }}
+            </div>
+            <div class="info-row">
+                <span class="label">Canal:</span>
+                {{ order.get_channel_display }}
+            </div>
+        </div>
+        <div class="right">
+            {% if order.customer %}
+            <div class="info-row">
+                <span class="label">Cliente:</span>
+                {{ order.customer.user.get_full_name }}
+            </div>
+            <div class="info-row">
+                <span class="label">Email:</span>
+                {{ order.customer.user.email }}
+            </div>
+            {% endif %}
+            <div class="info-row">
+                <span class="label">Sucursal:</span>
+                {{ order.branch.name }}
+            </div>
+            <div class="info-row">
+                <span class="label">Ciudad:</span>
+                {{ order.branch.city.name }}
+            </div>
+        </div>
+    </div>
+
+    {% if order.reservation %}
+    <div class="info-row" style="background-color: #fffbcc; padding: 8px; margin: 10px 0; border-left: 4px solid #f0ad4e;">
+        <span class="label">Reserva:</span> {{ order.reservation.code }}
+        | Programada para: {{ order.reservation.scheduled_for|date:"d/m/Y H:i" }}
+    </div>
+    {% endif %}
+
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th style="width: 5%;">#</th>
+                <th style="width: 40%;">Producto</th>
+                <th style="width: 12%;" class="text-center">Talla</th>
+                <th style="width: 12%;" class="text-center">Color</th>
+                <th style="width: 8%;" class="text-right">Cant.</th>
+                <th style="width: 12%;" class="text-right">Precio Unit.</th>
+                <th style="width: 11%;" class="text-right">Subtotal</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in items %}
+            <tr>
+                <td class="text-center">{{ forloop.counter }}</td>
+                <td>
+                    {{ item.variant.product.name }}<br>
+                    <small style="color: #666;">SKU: {{ item.variant.sku }}</small>
+                </td>
+                <td class="text-center">{{ item.variant.size.name }}</td>
+                <td class="text-center">{{ item.variant.color.name }}</td>
+                <td class="text-right">{{ item.quantity }}</td>
+                <td class="text-right">{{ order.currency }} {{ item.unit_price|floatformat:2 }}</td>
+                <td class="text-right">{{ order.currency }} {{ item.line_total|floatformat:2 }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="totals">
+        <div class="totals-row">
+            <div class="label">Subtotal:</div>
+            <div class="amount">{{ order.currency }} {{ order.subtotal|floatformat:2 }}</div>
+        </div>
+
+        {% if order.discount_total > 0 %}
+        <div class="totals-row">
+            <div class="label">Descuento:</div>
+            <div class="amount">- {{ order.currency }} {{ order.discount_total|floatformat:2 }}</div>
+        </div>
+        {% endif %}
+
+        {% if order.tax_total > 0 %}
+        <div class="totals-row">
+            <div class="label">Impuestos:</div>
+            <div class="amount">{{ order.currency }} {{ order.tax_total|floatformat:2 }}</div>
+        </div>
+        {% endif %}
+
+        <div class="totals-row grand-total">
+            <div class="label">TOTAL:</div>
+            <div class="amount">{{ order.currency }} {{ order.grand_total|floatformat:2 }}</div>
+        </div>
+    </div>
+
+    <div class="payments">
+        <h3>Forma de Pago</h3>
+        {% for payment in payments %}
+        <div class="payment-row">
+            <div>
+                {{ payment.get_method_display }}
+                {% if payment.method == 'CASH' and payment.received_amount %}
+                    (Recibido: {{ order.currency }} {{ payment.received_amount|floatformat:2 }})
+                {% endif %}
+            </div>
+            <div>
+                {{ order.currency }} {{ payment.amount|floatformat:2 }}
+            </div>
+        </div>
+        {% if payment.method == 'CASH' and payment.change_amount > 0 %}
+        <div class="payment-row" style="font-style: italic; color: #666;">
+            <div>Cambio:</div>
+            <div>{{ order.currency }} {{ payment.change_amount|floatformat:2 }}</div>
+        </div>
+        {% endif %}
+        {% endfor %}
+
+        <div class="payment-row" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd; font-weight: bold;">
+            <div>Total Pagado:</div>
+            <div>{{ order.currency }} {{ total_paid|floatformat:2 }}</div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>
+            <strong>¡Gracias por su compra!</strong><br>
+            Este comprobante no es una factura fiscal.<br>
+            Para consultas o reclamos, presentar este comprobante.<br>
+            <br>
+            Generado el {{ generated_at|date:"d/m/Y" }} a las {{ generated_at|date:"H:i:s" }}<br>
+            Hash de integridad: <span style="font-family: monospace; font-size: 7pt;">{{ order.code }}</span>
+        </p>
+    </div>
+</body>
+</html>
