@@ -226,3 +226,9 @@ DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='noreply@fashionstore.com
 RESERVATION_DEFAULT_EXPIRY_HOURS = 24
 RESERVATION_SLOT_DURATION_MINUTES = 30
 LOW_STOCK_THRESHOLD = 5
+
+# Virtual fitting (overlay 2D). rembg runs locally; disable if models are missing.
+AR_AUTO_CUTOUT = env.bool('AR_AUTO_CUTOUT', default=True)
+AR_REMBG_MODEL = env('AR_REMBG_MODEL', default='u2net_cloth_seg')
+AR_ASSET_MAX_WIDTH = env.int('AR_ASSET_MAX_WIDTH', default=1024)
+AR_ASSET_UPLOAD_MAX_MB = env.int('AR_ASSET_UPLOAD_MAX_MB', default=8)

@@ -1,0 +1,6 @@
+# Optional local cutout for AR overlays (CPU, offline).
+# Models download to ~/.u2net on first use (~40–300 MB).
+-r base.txt
+rembg==2.0.*
+onnxruntime==1.19.*
+opencv-python-headless==4.10.*

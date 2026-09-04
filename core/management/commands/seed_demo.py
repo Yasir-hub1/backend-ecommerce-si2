@@ -25,6 +25,7 @@ from catalog.models import (
     Category, Brand, SizeGroup, Size, Color, Season, Collection,
     Product, ProductVariant, ProductImage, ARAsset,
 )
+from core.ar import default_anchor_config
 from core.seed.demo_data import (
     DEMO_DOMAIN, DEMO_PASSWORD, CITIES, BRANCHES, CATEGORIES, BRANDS,
     COLORS, SEASONS, PRODUCTS, SUPPLIERS, placeholder_file, demo_email,
@@ -284,10 +285,13 @@ class Command(BaseCommand):
             )
 
             ARAsset.objects.get_or_create(
-                product=product, color=color, kind=ARAsset.MODEL_3D,
+                product=product, color=color, kind=ARAsset.OVERLAY_2D,
                 defaults={
                     'file': placeholder_file(f'ar-{i}'),
-                    'anchor_config': {'scale': 1.0, 'offset_y': 0.05},
+                    'anchor_config': default_anchor_config(auto_calibrated=True),
+                    'status': ARAsset.READY,
+                    'width': 1024,
+                    'height': 1180,
                     'is_active': True,
                 },
             )

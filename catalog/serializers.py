@@ -362,7 +362,9 @@ class GenerateVariantsSerializer(serializers.Serializer):
 
 
 class ARAssetSerializer(serializers.ModelSerializer):
-    """AR asset serializer."""
+    """AR asset serializer (admin write + public read)."""
+
+    file_url = serializers.SerializerMethodField()
 
     class Meta:
         model = ARAsset
@@ -371,13 +373,88 @@ class ARAssetSerializer(serializers.ModelSerializer):
             'product',
             'color',
             'kind',
+            'status',
             'file',
+            'file_url',
+            'width',
+            'height',
             'anchor_config',
+            'process_error',
             'is_active',
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = [
+            'id',
+            'status',
+            'file_url',
+            'width',
+            'height',
+            'process_error',
+            'created_at',
+            'updated_at',
+        ]
+        extra_kwargs = {
+            'file': {'required': False},
+            'kind': {'default': ARAsset.OVERLAY_2D},
+        }
+
+    def get_file_url(self, obj: ARAsset) -> str | None:
+        if not obj.file:
+            return None
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(obj.file.url)
+        return obj.file.url
+
+    def validate_file(self, value):
+        from catalog.services.ar_assets import validate_ar_upload
+
+        return validate_ar_upload(value)
+
+    def validate_anchor_config(self, value):
+        from core.ar import validate_anchor_config
+
+        if not value:
+            return value
+        try:
+            return validate_anchor_config(value)
+        except ValueError as err:
+            raise serializers.ValidationError(str(err)) from err
+
+    def update(self, instance, validated_data):
+        if 'anchor_config' in validated_data and validated_data['anchor_config']:
+            config = dict(validated_data['anchor_config'])
+            config['auto_calibrated'] = False
+            validated_data['anchor_config'] = config
+        return super().update(instance, validated_data)
+
+
+class PublicARAssetSerializer(serializers.ModelSerializer):
+    """Contract consumed by the mobile try-on screen."""
+
+    file_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ARAsset
+        fields = [
+            'id',
+            'kind',
+            'status',
+            'file_url',
+            'width',
+            'height',
+            'anchor_config',
+            'updated_at',
+        ]
+
+    def get_file_url(self, obj: ARAsset) -> str | None:
+        if not obj.file:
+            return None
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(obj.file.url)
+        return obj.file.url
 
 
 class ProductWithAvailabilitySerializer(ProductListSerializer):

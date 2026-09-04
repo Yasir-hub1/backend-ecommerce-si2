@@ -17,6 +17,11 @@ from django.utils.text import slugify
 from core.models import TimeStampedModel
 
 
+def ar_asset_upload_to(instance, filename: str) -> str:
+    color = instance.color.slug if getattr(instance, 'color_id', None) else 'default'
+    return f'ar_assets/{instance.product_id}/{color}.png'
+
+
 # =============================================================================
 # CATEGORY
 # =============================================================================
@@ -558,10 +563,35 @@ class ARAsset(TimeStampedModel):
         verbose_name='Color',
     )
 
-    kind = models.CharField('Tipo', max_length=20, choices=KIND_CHOICES)
-    file = models.FileField('Archivo', upload_to='ar_assets/')
+    PROCESSING = 'PROCESSING'
+    READY = 'READY'
+    FAILED = 'FAILED'
 
-    # JSON configuration for AR engine
+    STATUS_CHOICES = [
+        (PROCESSING, 'Procesando'),
+        (READY, 'Listo'),
+        (FAILED, 'Fallido'),
+    ]
+
+    kind = models.CharField(
+        'Tipo',
+        max_length=20,
+        choices=KIND_CHOICES,
+        default=OVERLAY_2D,
+    )
+    file = models.FileField('Archivo', upload_to=ar_asset_upload_to)
+    status = models.CharField(
+        'Estado',
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=READY,
+        db_index=True,
+    )
+    width = models.PositiveIntegerField('Ancho', default=0)
+    height = models.PositiveIntegerField('Alto', default=0)
+    process_error = models.CharField('Error de proceso', max_length=300, blank=True)
+
+    # JSON configuration for AR engine (versioned overlay-2D contract)
     anchor_config = models.JSONField(
         'Configuración de anclaje',
         default=dict,

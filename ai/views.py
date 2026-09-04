@@ -5,7 +5,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ai.models import BrowsingEvent, EventType
-from ai.models import BrowsingEvent, EventType
 from ai.serializers import ChatRequestSerializer
 from ai.services import chat_with_assistant, get_recommendations
 
@@ -58,10 +57,14 @@ class BrowsingEventView(APIView):
         if request.user.is_authenticated and hasattr(request.user, 'customer_profile'):
             customer = request.user.customer_profile
 
+        query = request.data.get('query', '') or ''
+        color_id = request.data.get('color_id')
+        if event_type == EventType.AR_TRY and color_id not in (None, ''):
+            query = f'color:{color_id}'
         BrowsingEvent.objects.create(
             customer=customer,
-            product_id=request.data.get('product_id'),
+            product_id=request.data.get('product_id') or None,
             event_type=event_type,
-            query=request.data.get('query', '')[:200],
+            query=str(query)[:200],
         )
         return Response({'ok': True}, status=status.HTTP_201_CREATED)

@@ -1,11 +1,14 @@
 """
 Views for catalog app.
 """
+import uuid
+
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticatedOrReadOnly, IsAuthenticated
+from rest_framework.permissions import IsAuthenticatedOrReadOnly, IsAuthenticated, AllowAny
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 
@@ -38,6 +41,7 @@ from catalog.serializers import (
     GenerateVariantsSerializer,
     ProductVariantListSerializer,
     ARAssetSerializer,
+    PublicARAssetSerializer,
     ProductWithAvailabilitySerializer,
 )
 from core.mixins import PublicReadRBACWriteMixin, ReferenceCountQuerysetMixin
@@ -46,7 +50,12 @@ from core.exceptions import BusinessError
 
 CATALOG_WRITE = 'catalog.products.manage'
 IMAGE_UPLOAD_PARSERS = [MultiPartParser, FormParser, JSONParser]
-CATALOG_WRITE_ACTIONS = frozenset({'images', 'image_detail', 'variants_generate'})
+CATALOG_WRITE_ACTIONS = frozenset({
+    'images',
+    'image_detail',
+    'variants_generate',
+    'ar_assets',
+})
 
 
 class CategoryViewSet(ReferenceCountQuerysetMixin, PublicReadRBACWriteMixin, viewsets.ModelViewSet):
@@ -237,6 +246,25 @@ class ProductViewSet(PublicReadRBACWriteMixin, viewsets.ModelViewSet):
 
         return qs
 
+    def get_object(self):
+        lookup = self.kwargs.get(self.lookup_field)
+        try:
+            uuid.UUID(str(lookup))
+        except (ValueError, TypeError, AttributeError):
+            return super().get_object()
+        qs = self.filter_queryset(self.get_queryset())
+        return get_object_or_404(qs, public_id=lookup)
+
+    def _ready_overlay(self, product, color_id=None):
+        qs = product.ar_assets.filter(
+            is_active=True,
+            status=ARAsset.READY,
+            kind=ARAsset.OVERLAY_2D,
+        ).select_related('color')
+        if color_id:
+            qs = qs.filter(color_id=color_id)
+        return qs.order_by('-updated_at').first()
+
     @action(detail=True, methods=['get'])
     def availability(self, request, pk=None):
         """
@@ -363,6 +391,69 @@ class ProductViewSet(PublicReadRBACWriteMixin, viewsets.ModelViewSet):
         serializer.save(product=product)
         return Response(serializer.data)
 
+    @action(
+        detail=True,
+        methods=['get', 'post'],
+        url_path='ar-assets',
+        parser_classes=IMAGE_UPLOAD_PARSERS,
+    )
+    def ar_assets(self, request, pk=None):
+        """List overlay assets, or upload a garment image for processing."""
+        product = self.get_object()
+
+        if request.method == 'GET':
+            queryset = product.ar_assets.select_related('color').order_by('color_id', '-updated_at')
+            if not (
+                request.user.is_authenticated
+                and getattr(request.user, 'role', None) == 'ADMIN'
+            ):
+                queryset = queryset.filter(
+                    is_active=True,
+                    status=ARAsset.READY,
+                    kind=ARAsset.OVERLAY_2D,
+                )
+            serializer = ARAssetSerializer(
+                queryset,
+                many=True,
+                context={'request': request},
+            )
+            return Response(serializer.data)
+
+        payload = request.data.copy()
+        payload['product'] = product.id
+        payload.setdefault('kind', ARAsset.OVERLAY_2D)
+        serializer = ARAssetSerializer(data=payload, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        asset = serializer.save(product=product, status=ARAsset.PROCESSING)
+
+        from catalog.tasks import enqueue_ar_asset_build
+
+        task_id = enqueue_ar_asset_build(asset.id)
+        asset.refresh_from_db()
+        body = ARAssetSerializer(asset, context={'request': request}).data
+        body['task_id'] = task_id
+        return Response(body, status=status.HTTP_202_ACCEPTED)
+
+    @action(
+        detail=True,
+        methods=['get'],
+        url_path='ar-asset',
+        permission_classes=[AllowAny],
+    )
+    def public_ar_asset(self, request, pk=None):
+        """Public overlay for the mobile try-on: ?color="""
+        product = self.get_object()
+        color = request.query_params.get('color')
+        asset = self._ready_overlay(product, color_id=color or None)
+        if asset is None:
+            return Response(
+                {'detail': 'No hay asset AR listo para este color.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(
+            PublicARAssetSerializer(asset, context={'request': request}).data,
+        )
+
     @action(detail=True, methods=['post'], url_path='variants/generate')
     def variants_generate(self, request, pk=None):
         """Bulk-create variants as size × color combinations."""
@@ -467,11 +558,25 @@ class ARAssetViewSet(PublicReadRBACWriteMixin, viewsets.ModelViewSet):
     """
     AR Asset management.
 
-    Public can retrieve for virtual try-on.
-    Admin can create/update/delete.
+    Public can retrieve READY overlays for virtual try-on.
+    Admin can create/update/delete and calibrate anchor_config.
     """
-    queryset = ARAsset.objects.select_related('product', 'color').filter(is_active=True)
+    queryset = ARAsset.objects.select_related('product', 'color')
     serializer_class = ARAssetSerializer
     write_permission = CATALOG_WRITE
+    parser_classes = IMAGE_UPLOAD_PARSERS
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['product', 'color', 'kind']
+    filterset_fields = ['product', 'color', 'kind', 'status']
+
+    def get_queryset(self):
+        qs = self.queryset
+        user = self.request.user
+        if user.is_authenticated and getattr(user, 'role', None) == 'ADMIN':
+            return qs
+        return qs.filter(is_active=True, status=ARAsset.READY, kind=ARAsset.OVERLAY_2D)
+
+    def perform_create(self, serializer):
+        asset = serializer.save(status=ARAsset.PROCESSING)
+        from catalog.tasks import enqueue_ar_asset_build
+
+        enqueue_ar_asset_build(asset.id)
