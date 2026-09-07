@@ -4,3 +4,7 @@
 rembg==2.0.*
 onnxruntime==1.19.*
 opencv-python-headless==4.10.*
+# YOLO-pose (Ultralytics) — precise shoulder/hip anchors when the catalog
+# photo includes a person. Downloads yolo11n-pose.pt (~6 MB) on first use.
+# MediaPipe is NOT used: its macOS Metal path aborts Celery workers.
+ultralytics>=8.3.0,<9

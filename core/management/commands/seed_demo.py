@@ -287,11 +287,12 @@ class Command(BaseCommand):
             ARAsset.objects.get_or_create(
                 product=product, color=color, kind=ARAsset.OVERLAY_2D,
                 defaults={
-                    'file': placeholder_file(f'ar-{i}'),
+                    # Seed creates a stub with NO processed file.
+                    # rebuild_ar_overlays will copy the catalog photo and run rembg.
                     'anchor_config': default_anchor_config(auto_calibrated=True),
-                    'status': ARAsset.READY,
-                    'width': 1024,
-                    'height': 1180,
+                    'status': ARAsset.PENDING,
+                    'width': 0,
+                    'height': 0,
                     'is_active': True,
                 },
             )

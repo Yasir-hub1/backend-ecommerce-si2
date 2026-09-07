@@ -135,7 +135,7 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 
 # Media files
-MEDIA_URL = 'media/'
+MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 # Default primary key field type
@@ -202,6 +202,12 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
+CELERY_TASK_ACKS_LATE = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TASK_TIME_LIMIT = 600
+
+DATA_UPLOAD_MAX_MEMORY_SIZE = 8 * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = 8 * 1024 * 1024
 
 # Stripe
 STRIPE_SECRET_KEY = env('STRIPE_SECRET_KEY', default='')
@@ -229,6 +235,7 @@ LOW_STOCK_THRESHOLD = 5
 
 # Virtual fitting (overlay 2D). rembg runs locally; disable if models are missing.
 AR_AUTO_CUTOUT = env.bool('AR_AUTO_CUTOUT', default=True)
-AR_REMBG_MODEL = env('AR_REMBG_MODEL', default='u2net_cloth_seg')
+AR_REMBG_MODEL = env('AR_REMBG_MODEL', default='u2net')
+AR_REMBG_ALPHA_MATTING = env.bool('AR_REMBG_ALPHA_MATTING', default=False)
 AR_ASSET_MAX_WIDTH = env.int('AR_ASSET_MAX_WIDTH', default=1024)
 AR_ASSET_UPLOAD_MAX_MB = env.int('AR_ASSET_UPLOAD_MAX_MB', default=8)

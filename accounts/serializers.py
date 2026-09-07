@@ -77,7 +77,12 @@ class EmployeeProfileSerializer(serializers.ModelSerializer):
 class CustomerRegistrationSerializer(serializers.Serializer):
     """Customer registration serializer."""
     email = serializers.EmailField()
-    password = serializers.CharField(write_only=True, style={'input_type': 'password'})
+    password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+        style={'input_type': 'password'},
+        help_text='Mínimo 8 caracteres. No uses contraseñas comunes ni solo números.',
+    )
     password_confirm = serializers.CharField(write_only=True, style={'input_type': 'password'})
     first_name = serializers.CharField(max_length=150)
     last_name = serializers.CharField(max_length=150)
@@ -86,21 +91,32 @@ class CustomerRegistrationSerializer(serializers.Serializer):
     gender_preference = serializers.ChoiceField(choices=Gender.CHOICES, required=False)
 
     def validate_email(self, value):
-        """Check if email is already in use."""
-        if User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("Este email ya está registrado")
-        return value
+        """Normalize and reject duplicates case-insensitively."""
+        email = value.strip().lower()
+        if User.objects.filter(email__iexact=email).exists():
+            raise serializers.ValidationError('Este email ya está registrado')
+        return email
+
+    def validate_phone(self, value):
+        """Blank phone must be NULL — empty string breaks the unique constraint."""
+        phone = (value or '').strip()
+        return phone or None
 
     def validate(self, attrs):
-        """Validate passwords match."""
+        """Validate passwords match and meet Django strength rules."""
         if attrs['password'] != attrs['password_confirm']:
             raise serializers.ValidationError({
-                'password_confirm': "Las contraseñas no coinciden"
+                'password_confirm': 'Las contraseñas no coinciden',
             })
 
-        # Validate password strength
         try:
-            validate_password(attrs['password'])
+            # Pass a temporary user so AttributeSimilarity can check name/email.
+            provisional = User(
+                email=attrs['email'],
+                first_name=attrs.get('first_name', ''),
+                last_name=attrs.get('last_name', ''),
+            )
+            validate_password(attrs['password'], user=provisional)
         except DjangoValidationError as e:
             raise serializers.ValidationError({'password': list(e.messages)})
 
@@ -113,7 +129,9 @@ class CustomerRegistrationSerializer(serializers.Serializer):
 
         # Extract profile data
         birth_date = validated_data.pop('birth_date', None)
-        gender_preference = validated_data.pop('gender_preference', None)
+        # CharField is NOT NULL — omit the key so the model default applies.
+        gender_preference = validated_data.pop('gender_preference', Gender.UNISEX)
+        phone = validated_data.pop('phone', None) or None
 
         # Create user
         user = User.objects.create_user(
@@ -121,7 +139,7 @@ class CustomerRegistrationSerializer(serializers.Serializer):
             password=validated_data['password'],
             first_name=validated_data['first_name'],
             last_name=validated_data['last_name'],
-            phone=validated_data.get('phone', ''),
+            phone=phone,
             role=Role.CUSTOMER,
         )
 
@@ -129,7 +147,7 @@ class CustomerRegistrationSerializer(serializers.Serializer):
         CustomerProfile.objects.create(
             user=user,
             birth_date=birth_date,
-            gender_preference=gender_preference,
+            gender_preference=gender_preference or Gender.UNISEX,
         )
 
         return user
@@ -160,9 +178,14 @@ class EmployeeCreateSerializer(serializers.Serializer):
 
     def validate_email(self, value):
         """Check if email is already in use."""
-        if User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("Este email ya está registrado")
-        return value
+        email = value.strip().lower()
+        if User.objects.filter(email__iexact=email).exists():
+            raise serializers.ValidationError('Este email ya está registrado')
+        return email
+
+    def validate_phone(self, value):
+        phone = (value or '').strip()
+        return phone or None
 
     def validate(self, attrs):
         """Validate role matches position."""
@@ -187,6 +210,7 @@ class EmployeeCreateSerializer(serializers.Serializer):
         branch = validated_data.pop('branch')
         position = validated_data.pop('position')
         hire_date = validated_data.pop('hire_date')
+        phone = validated_data.pop('phone', None) or None
 
         # Create user
         user = User.objects.create_user(
@@ -194,7 +218,7 @@ class EmployeeCreateSerializer(serializers.Serializer):
             password=validated_data['password'],
             first_name=validated_data['first_name'],
             last_name=validated_data['last_name'],
-            phone=validated_data.get('phone', ''),
+            phone=phone,
             role=validated_data['role'],
         )
 

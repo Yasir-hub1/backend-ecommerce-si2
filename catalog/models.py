@@ -15,11 +15,57 @@ from django.db import models
 from django.core.validators import RegexValidator, MinValueValidator
 from django.utils.text import slugify
 from core.models import TimeStampedModel
+from core.storage import OverwriteStorage
+
+
+# Stable paths for AR media — always overwrite the previous upload/process.
+ar_overwrite_storage = OverwriteStorage()
+
+
+def _ascii_slug(slug: str) -> str:
+    """Normalize a slug to pure ASCII so filenames are portable across all OS/servers."""
+    import re
+    import unicodedata
+
+    nfd = unicodedata.normalize('NFD', slug)
+    ascii_only = nfd.encode('ascii', 'ignore').decode('ascii')
+    return re.sub(r'[^a-z0-9-]+', '-', ascii_only.lower()).strip('-') or 'default'
+
+
+def _file_ext(filename: str, *, default: str = 'jpg') -> str:
+    ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else default
+    if ext not in {'jpg', 'jpeg', 'png', 'webp'}:
+        return default
+    return ext
+
+
+def _stamp() -> str:
+    from django.utils import timezone
+
+    return timezone.now().strftime('%Y%m%d_%H%M%S')
+
+
+def _color_key(instance) -> str:
+    raw = instance.color.slug if getattr(instance, 'color_id', None) else 'default'
+    return _ascii_slug(raw)
+
+
+def product_image_upload_to(instance, filename: str) -> str:
+    """Date-stamped path: products/{product_id}/{YYYYMMDD_HHMMSS}_{color}.{ext}."""
+    ext = _file_ext(filename)
+    color = _color_key(instance) if getattr(instance, 'color_id', None) else 'all'
+    return f'products/{instance.product_id}/{_stamp()}_{color}.{ext}'
 
 
 def ar_asset_upload_to(instance, filename: str) -> str:
-    color = instance.color.slug if getattr(instance, 'color_id', None) else 'default'
-    return f'ar_assets/{instance.product_id}/{color}.png'
+    """Stable processed overlay path (OverwriteStorage replaces prior PNG)."""
+    return f'ar_assets/{instance.product_id}/{_color_key(instance)}.png'
+
+
+def ar_source_upload_to(instance, filename: str) -> str:
+    """Date-stamped source: ar/source/{product_id}/{YYYYMMDD_HHMMSS}_{color}.{ext}."""
+    ext = _file_ext(filename)
+    return f'ar/source/{instance.product_id}/{_stamp()}_{_color_key(instance)}.{ext}'
 
 
 # =============================================================================
@@ -515,7 +561,7 @@ class ProductImage(TimeStampedModel):
         verbose_name='Color',
     )
 
-    image = models.ImageField('Imagen', upload_to='products/')
+    image = models.ImageField('Imagen', upload_to=product_image_upload_to)
     alt_text = models.CharField('Texto alternativo', max_length=200, blank=True)
 
     is_primary = models.BooleanField('Imagen principal', default=False)
@@ -531,6 +577,11 @@ class ProductImage(TimeStampedModel):
         color_info = f" - {self.color.name}" if self.color else ""
         return f"Imagen de {self.product.name}{color_info}"
 
+    def delete(self, *args, **kwargs):
+        from catalog.services.media_cleanup import delete_product_image_files
+
+        delete_product_image_files(self)
+        return super().delete(*args, **kwargs)
 
 class ARAsset(TimeStampedModel):
     """
@@ -563,14 +614,16 @@ class ARAsset(TimeStampedModel):
         verbose_name='Color',
     )
 
+    PENDING = 'PENDING'
     PROCESSING = 'PROCESSING'
     READY = 'READY'
     FAILED = 'FAILED'
 
     STATUS_CHOICES = [
+        (PENDING, 'Pendiente'),
         (PROCESSING, 'Procesando'),
         (READY, 'Listo'),
-        (FAILED, 'Fallido'),
+        (FAILED, 'Falló'),
     ]
 
     kind = models.CharField(
@@ -579,17 +632,30 @@ class ARAsset(TimeStampedModel):
         choices=KIND_CHOICES,
         default=OVERLAY_2D,
     )
-    file = models.FileField('Archivo', upload_to=ar_asset_upload_to)
+    source_image = models.ImageField(
+        'Imagen origen',
+        upload_to=ar_source_upload_to,
+        storage=ar_overwrite_storage,
+        blank=True,
+        help_text='Archivo que subió el administrador, antes de rembg.',
+    )
+    file = models.FileField(
+        'Archivo procesado',
+        upload_to=ar_asset_upload_to,
+        storage=ar_overwrite_storage,
+        blank=True,
+        null=True,
+    )
     status = models.CharField(
         'Estado',
         max_length=20,
         choices=STATUS_CHOICES,
-        default=READY,
+        default=PENDING,
         db_index=True,
     )
     width = models.PositiveIntegerField('Ancho', default=0)
     height = models.PositiveIntegerField('Alto', default=0)
-    process_error = models.CharField('Error de proceso', max_length=300, blank=True)
+    process_error = models.TextField('Error de proceso', blank=True)
 
     # JSON configuration for AR engine (versioned overlay-2D contract)
     anchor_config = models.JSONField(
@@ -610,3 +676,9 @@ class ARAsset(TimeStampedModel):
     def __str__(self):
         color_info = f" - {self.color.name}" if self.color else ""
         return f"AR {self.get_kind_display()} de {self.product.name}{color_info}"
+
+    def delete(self, *args, **kwargs):
+        from catalog.services.media_cleanup import delete_ar_asset_files
+
+        delete_ar_asset_files(self)
+        return super().delete(*args, **kwargs)

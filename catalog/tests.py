@@ -26,6 +26,18 @@ class AnchorConfigTests(SimpleTestCase):
         self.assertEqual(config['version'], 1)
         self.assertEqual(config['body_part'], 'TORSO')
         self.assertIn('M', config['size_scale'])
+        self.assertEqual(config['width_factor'], 1.0)
+        self.assertEqual(config['coord_space'], 'png_normalized')
+
+    def test_accepts_camel_case_aliases(self):
+        raw = dict(default_anchor_config())
+        del raw['width_factor']
+        del raw['offset_y']
+        raw['widthFactor'] = 1.2
+        raw['offsetY'] = -0.08
+        config = validate_anchor_config(raw)
+        self.assertEqual(config['width_factor'], 1.2)
+        self.assertEqual(config['offset_y'], -0.08)
 
     def test_rejects_out_of_range_points(self):
         raw = default_anchor_config()
@@ -57,6 +69,13 @@ class ValidateUploadTests(SimpleTestCase):
         with self.assertRaises(ValidationError):
             validate_ar_upload(upload)
 
+    @override_settings(AR_AUTO_CUTOUT=False, AR_ASSET_UPLOAD_MAX_MB=8)
+    def test_rejects_oversized_side(self):
+        data = _png_bytes(width=4100, height=600)
+        upload = SimpleUploadedFile('huge.png', data, content_type='image/png')
+        with self.assertRaises(ValidationError):
+            validate_ar_upload(upload)
+
 
 class ProcessGarmentTests(TestCase):
     @override_settings(AR_AUTO_CUTOUT=False, AR_ASSET_MAX_WIDTH=512)
@@ -71,3 +90,11 @@ class ProcessGarmentTests(TestCase):
         png, anchor = process_garment_image(_png_bytes())
         self.assertGreater(len(png), 0)
         self.assertEqual(anchor['body_part'], 'TORSO')
+
+
+class EnqueueArAssetTests(SimpleTestCase):
+    @patch('catalog.tasks.build_ar_asset.delay', side_effect=RuntimeError('no broker'))
+    def test_does_not_process_inline_when_celery_is_down(self, _mock):
+        from catalog.tasks import enqueue_ar_asset_build
+
+        self.assertIsNone(enqueue_ar_asset_build(1))

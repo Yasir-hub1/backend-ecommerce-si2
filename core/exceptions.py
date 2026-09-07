@@ -49,6 +49,35 @@ def _error_response(*, code: str, message: str, details=None, status_code: int) 
     )
 
 
+def _first_detail_message(data) -> str | None:
+    """Pick the first human-readable string from DRF validation payloads."""
+    if data is None:
+        return None
+    if isinstance(data, str):
+        text = data.strip()
+        return text or None
+    if isinstance(data, (list, tuple)):
+        for item in data:
+            found = _first_detail_message(item)
+            if found:
+                return found
+        return None
+    if isinstance(data, dict):
+        # Prefer non-field / detail keys, then field errors in stable order.
+        preferred = []
+        rest = []
+        for key, value in data.items():
+            if key in ('non_field_errors', 'detail', 'message'):
+                preferred.append(value)
+            else:
+                rest.append(value)
+        for value in preferred + rest:
+            found = _first_detail_message(value)
+            if found:
+                return found
+    return None
+
+
 def api_exception_handler(exc, context):
     """
     Custom exception handler for DRF that handles BusinessError
@@ -104,6 +133,7 @@ def api_exception_handler(exc, context):
         message = 'Error en la solicitud'
         if response.status_code == 404:
             code = 'NOT_FOUND'
+            message = 'Recurso no encontrado.'
         elif response.status_code == 403:
             code = 'FORBIDDEN'
             message = 'No tienes permiso para esta operación.'
@@ -112,6 +142,10 @@ def api_exception_handler(exc, context):
             message = 'Debes autenticarte para acceder a este recurso.'
         elif response.status_code == 409:
             code = 'CONFLICT'
+
+        # Surface the real field error (e.g. weak password) instead of a generic label.
+        if response.status_code == 400:
+            message = _first_detail_message(response.data) or message
 
         error_data = {
             'error': {

@@ -39,6 +39,9 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault('role', Role.CUSTOMER)
         extra_fields.setdefault('is_active', True)
         extra_fields.setdefault('is_staff', False)
+        # phone is unique + nullable: empty string collides with other blank phones.
+        if not extra_fields.get('phone'):
+            extra_fields['phone'] = None
 
         user = self.model(email=email, **extra_fields)
         user.set_password(password)

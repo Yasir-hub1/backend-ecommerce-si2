@@ -51,6 +51,11 @@ Thumbs.db
 celerybeat-schedule
 celerybeat.pid
 
+# ML weights (downloaded on first AR process)
+*.pt
+runs/
+catalog/ml_models/*.task
+
 # Testing
 .coverage
 htmlcov/

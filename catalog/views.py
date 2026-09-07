@@ -54,7 +54,6 @@ CATALOG_WRITE_ACTIONS = frozenset({
     'images',
     'image_detail',
     'variants_generate',
-    'ar_assets',
 })
 
 
@@ -184,6 +183,10 @@ class ProductViewSet(PublicReadRBACWriteMixin, viewsets.ModelViewSet):
     IMAGE_WRITE_ACTIONS = CATALOG_WRITE_ACTIONS
 
     def get_permissions(self):
+        if self.action == 'ar_assets':
+            if self.request.method == 'GET':
+                return [IsAuthenticatedOrReadOnly()]
+            return [IsAuthenticated(), HasAppPermission()]
         if self.action in self.IMAGE_WRITE_ACTIONS:
             return [IsAuthenticated(), HasAppPermission()]
         return super().get_permissions()
@@ -255,15 +258,15 @@ class ProductViewSet(PublicReadRBACWriteMixin, viewsets.ModelViewSet):
         qs = self.filter_queryset(self.get_queryset())
         return get_object_or_404(qs, public_id=lookup)
 
-    def _ready_overlay(self, product, color_id=None):
-        qs = product.ar_assets.filter(
-            is_active=True,
-            status=ARAsset.READY,
-            kind=ARAsset.OVERLAY_2D,
-        ).select_related('color')
+    def _ready_overlay(self, product, color_id=None, kind=None):
+        qs = product.ar_assets.filter(is_active=True, status=ARAsset.READY).select_related('color')
         if color_id:
-            qs = qs.filter(color_id=color_id)
-        return qs.order_by('-updated_at').first()
+            colored = qs.filter(color_id=color_id)
+            qs = colored if colored.exists() else qs
+        preferred = qs.filter(kind=kind or ARAsset.OVERLAY_2D)
+        return (preferred.exists() and preferred.order_by('-updated_at').first()) or qs.order_by(
+            '-updated_at',
+        ).first()
 
     @action(detail=True, methods=['get'])
     def availability(self, request, pk=None):
@@ -407,11 +410,7 @@ class ProductViewSet(PublicReadRBACWriteMixin, viewsets.ModelViewSet):
                 request.user.is_authenticated
                 and getattr(request.user, 'role', None) == 'ADMIN'
             ):
-                queryset = queryset.filter(
-                    is_active=True,
-                    status=ARAsset.READY,
-                    kind=ARAsset.OVERLAY_2D,
-                )
+                queryset = queryset.filter(is_active=True, status=ARAsset.READY).exclude(file='')
             serializer = ARAssetSerializer(
                 queryset,
                 many=True,
@@ -419,17 +418,47 @@ class ProductViewSet(PublicReadRBACWriteMixin, viewsets.ModelViewSet):
             )
             return Response(serializer.data)
 
-        payload = request.data.copy()
+        payload = {}
+        # Prefer FILES — QueryDict.copy() can leave stale file handles on re-upload.
+        source = request.FILES.get('source_image') or request.FILES.get('file')
+        if source is not None:
+            payload['source_image'] = source
+        kind = request.data.get('kind') or ARAsset.OVERLAY_2D
+        payload['kind'] = kind
+        color_raw = request.data.get('color')
+        if color_raw not in (None, '', 'null'):
+            payload['color'] = color_raw
+        else:
+            payload['color'] = None
         payload['product'] = product.id
-        payload.setdefault('kind', ARAsset.OVERLAY_2D)
-        serializer = ARAssetSerializer(data=payload, context={'request': request})
+
+        color_id = payload.get('color')
+        existing = product.ar_assets.filter(color_id=color_id, kind=kind).first()
+        serializer = ARAssetSerializer(
+            instance=existing,
+            data=payload,
+            partial=bool(existing),
+            context={'request': request},
+        )
         serializer.is_valid(raise_exception=True)
-        asset = serializer.save(product=product, status=ARAsset.PROCESSING)
+        if not serializer.validated_data.get('source_image') and not (
+            existing and existing.source_image
+        ):
+            return Response(
+                {'source_image': ['Sube la imagen de la prenda.']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Replace previous source so date-stamped paths never leave orphans.
+        if existing and existing.source_image and serializer.validated_data.get('source_image'):
+            from catalog.services.media_cleanup import delete_field_file
+
+            delete_field_file(existing.source_image)
+            existing.source_image = ''
+        asset = serializer.save(product=product, status=ARAsset.PENDING, process_error='')
 
         from catalog.tasks import enqueue_ar_asset_build
 
         task_id = enqueue_ar_asset_build(asset.id)
-        asset.refresh_from_db()
         body = ARAssetSerializer(asset, context={'request': request}).data
         body['task_id'] = task_id
         return Response(body, status=status.HTTP_202_ACCEPTED)
@@ -441,10 +470,11 @@ class ProductViewSet(PublicReadRBACWriteMixin, viewsets.ModelViewSet):
         permission_classes=[AllowAny],
     )
     def public_ar_asset(self, request, pk=None):
-        """Public overlay for the mobile try-on: ?color="""
+        """Public overlay for the mobile try-on: ?color=&kind="""
         product = self.get_object()
         color = request.query_params.get('color')
-        asset = self._ready_overlay(product, color_id=color or None)
+        kind = request.query_params.get('kind') or ARAsset.OVERLAY_2D
+        asset = self._ready_overlay(product, color_id=color or None, kind=kind)
         if asset is None:
             return Response(
                 {'detail': 'No hay asset AR listo para este color.'},
@@ -553,6 +583,10 @@ class ProductImageViewSet(PublicReadRBACWriteMixin, viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['product', 'color', 'is_primary']
 
+    def perform_destroy(self, instance):
+        # Model.delete() also removes the file from MEDIA_ROOT.
+        instance.delete()
+
 
 class ARAssetViewSet(PublicReadRBACWriteMixin, viewsets.ModelViewSet):
     """
@@ -573,10 +607,37 @@ class ARAssetViewSet(PublicReadRBACWriteMixin, viewsets.ModelViewSet):
         user = self.request.user
         if user.is_authenticated and getattr(user, 'role', None) == 'ADMIN':
             return qs
-        return qs.filter(is_active=True, status=ARAsset.READY, kind=ARAsset.OVERLAY_2D)
+        return qs.filter(is_active=True, status=ARAsset.READY).exclude(file='')
 
     def perform_create(self, serializer):
-        asset = serializer.save(status=ARAsset.PROCESSING)
+        asset = serializer.save(status=ARAsset.PENDING, process_error='')
         from catalog.tasks import enqueue_ar_asset_build
 
         enqueue_ar_asset_build(asset.id)
+
+    def perform_destroy(self, instance):
+        # Model.delete() removes source_image + processed file from MEDIA_ROOT.
+        instance.delete()
+
+    def create(self, request, *args, **kwargs):
+        response = super().create(request, *args, **kwargs)
+        response.status_code = status.HTTP_202_ACCEPTED
+        return response
+
+    @action(detail=True, methods=['post'], url_path='retry')
+    def retry(self, request, pk=None):
+        asset = self.get_object()
+        if not (asset.source_image or asset.file):
+            return Response(
+                {'detail': 'El asset no tiene imagen de origen.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        asset.status = ARAsset.PENDING
+        asset.process_error = ''
+        asset.save(update_fields=['status', 'process_error', 'updated_at'])
+        from catalog.tasks import enqueue_ar_asset_build
+
+        task_id = enqueue_ar_asset_build(asset.id)
+        body = ARAssetSerializer(asset, context={'request': request}).data
+        body['task_id'] = task_id
+        return Response(body, status=status.HTTP_202_ACCEPTED)

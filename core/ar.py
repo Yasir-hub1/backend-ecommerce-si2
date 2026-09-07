@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import Any, Literal, TypedDict
 
 ANCHOR_CONFIG_VERSION = 1
+# Overlay PNG: origin top-left, +x right, +y down, values in [0, 1].
+# Mobile pose is the same axes in camera-stage pixels. See mobile pose/camera-space.ts.
+COORD_SPACE = 'png_normalized'
 BODY_PARTS = frozenset({'TORSO', 'LEGS', 'FULL_BODY'})
 DEFAULT_SIZE_SCALE: dict[str, float] = {
     'XS': 0.90,
@@ -25,9 +28,11 @@ class AnchorPoint(TypedDict):
 
 class AnchorConfig(TypedDict):
     version: int
+    coord_space: Literal['png_normalized']
     anchor_left: AnchorPoint
     anchor_right: AnchorPoint
     offset_y: float
+    width_factor: float
     size_scale: dict[str, float]
     body_part: BodyPart
     auto_calibrated: bool
@@ -36,9 +41,11 @@ class AnchorConfig(TypedDict):
 def default_anchor_config(*, body_part: BodyPart = 'TORSO', auto_calibrated: bool = True) -> AnchorConfig:
     return {
         'version': ANCHOR_CONFIG_VERSION,
+        'coord_space': COORD_SPACE,
         'anchor_left': {'x': 0.18, 'y': 0.115},
         'anchor_right': {'x': 0.82, 'y': 0.115},
-        'offset_y': -0.02,
+        'offset_y': 0.0,
+        'width_factor': 1.0,
         'size_scale': dict(DEFAULT_SIZE_SCALE),
         'body_part': body_part,
         'auto_calibrated': auto_calibrated,
@@ -71,11 +78,18 @@ def validate_anchor_config(raw: Any) -> AnchorConfig:
     if body_part not in BODY_PARTS:
         raise ValueError('body_part debe ser TORSO, LEGS o FULL_BODY')
 
-    offset_y = float(raw.get('offset_y', -0.02))
+    offset_y = float(raw.get('offset_y', raw.get('offsetY', 0.0)))
+    coord_space = str(raw.get('coord_space', raw.get('coordSpace', COORD_SPACE)))
+    if coord_space != COORD_SPACE:
+        raise ValueError(f'coord_space debe ser {COORD_SPACE}')
     if not (-1.0 <= offset_y <= 1.0):
         raise ValueError('offset_y debe estar entre -1 y 1')
 
-    size_raw = raw.get('size_scale') or DEFAULT_SIZE_SCALE
+    width_factor = float(raw.get('width_factor', raw.get('widthFactor', 1.0)))
+    if not (0.4 <= width_factor <= 3.0):
+        raise ValueError('width_factor debe estar entre 0.4 y 3')
+
+    size_raw = raw.get('size_scale') or raw.get('sizeScale') or DEFAULT_SIZE_SCALE
     if not isinstance(size_raw, dict) or not size_raw:
         raise ValueError('size_scale debe ser un objeto de códigos de talla')
 
@@ -89,9 +103,11 @@ def validate_anchor_config(raw: Any) -> AnchorConfig:
 
     return {
         'version': ANCHOR_CONFIG_VERSION,
+        'coord_space': COORD_SPACE,
         'anchor_left': _as_point(raw.get('anchor_left'), 'anchor_left'),
         'anchor_right': _as_point(raw.get('anchor_right'), 'anchor_right'),
         'offset_y': round(offset_y, 4),
+        'width_factor': round(width_factor, 4),
         'size_scale': size_scale,
         'body_part': body_part,  # type: ignore[typeddict-item]
         'auto_calibrated': bool(raw.get('auto_calibrated', False)),

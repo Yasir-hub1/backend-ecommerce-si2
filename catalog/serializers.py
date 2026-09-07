@@ -18,6 +18,17 @@ from catalog.models import (
 from catalog.services.product_images import ensure_single_primary_image
 
 
+def media_absolute_url(field, request) -> str | None:
+    if not field:
+        return None
+    path = field.url
+    if not path.startswith('/'):
+        path = f'/{path}'
+    if request:
+        return request.build_absolute_uri(path)
+    return path
+
+
 class CategorySerializer(serializers.ModelSerializer):
     """Category serializer."""
 
@@ -61,12 +72,7 @@ class BrandSerializer(serializers.ModelSerializer):
         }
 
     def get_logo_url(self, obj: Brand) -> str | None:
-        if not obj.logo:
-            return None
-        request = self.context.get('request')
-        if request:
-            return request.build_absolute_uri(obj.logo.url)
-        return obj.logo.url
+        return media_absolute_url(obj.logo, self.context.get('request'))
 
     def create(self, validated_data):
         validated_data.pop('remove_logo', None)
@@ -171,23 +177,30 @@ class ProductImageSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
     def get_image_url(self, obj: ProductImage) -> str | None:
-        if not obj.image:
-            return None
-        request = self.context.get('request')
-        if request:
-            return request.build_absolute_uri(obj.image.url)
-        return obj.image.url
+        return media_absolute_url(obj.image, self.context.get('request'))
 
     def create(self, validated_data):
         image = super().create(validated_data)
         if image.is_primary:
             ensure_single_primary_image(product_id=image.product_id, primary_image_id=image.id)
+        from catalog.services.ar_sync import sync_ar_from_product_image
+
+        sync_ar_from_product_image(image)
         return image
 
     def update(self, instance, validated_data):
+        new_file = validated_data.pop('image', None)
+        if new_file is not None:
+            from catalog.services.product_images import replace_product_image_file
+
+            replace_product_image_file(instance=instance, new_file=new_file)
         image = super().update(instance, validated_data)
         if image.is_primary:
             ensure_single_primary_image(product_id=image.product_id, primary_image_id=image.id)
+        if new_file is not None:
+            from catalog.services.ar_sync import sync_ar_from_product_image
+
+            sync_ar_from_product_image(image)
         return image
 
 
@@ -296,12 +309,9 @@ class ProductListSerializer(serializers.ModelSerializer):
     def get_primary_image(self, obj):
         """Get primary image URL."""
         primary = obj.images.filter(is_primary=True).first()
-        if primary:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(primary.image.url)
-            return primary.image.url
-        return None
+        if not primary:
+            return None
+        return media_absolute_url(primary.image, self.context.get('request'))
 
 
 class ProductDetailSerializer(serializers.ModelSerializer):
@@ -365,6 +375,8 @@ class ARAssetSerializer(serializers.ModelSerializer):
     """AR asset serializer (admin write + public read)."""
 
     file_url = serializers.SerializerMethodField()
+    source_image_url = serializers.SerializerMethodField()
+    error_message = serializers.CharField(source='process_error', read_only=True)
 
     class Meta:
         model = ARAsset
@@ -374,12 +386,15 @@ class ARAssetSerializer(serializers.ModelSerializer):
             'color',
             'kind',
             'status',
+            'source_image',
+            'source_image_url',
             'file',
             'file_url',
             'width',
             'height',
             'anchor_config',
             'process_error',
+            'error_message',
             'is_active',
             'created_at',
             'updated_at',
@@ -387,27 +402,28 @@ class ARAssetSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'id',
             'status',
+            'file',
             'file_url',
+            'source_image_url',
             'width',
             'height',
             'process_error',
+            'error_message',
             'created_at',
             'updated_at',
         ]
         extra_kwargs = {
-            'file': {'required': False},
+            'source_image': {'required': False},
             'kind': {'default': ARAsset.OVERLAY_2D},
         }
 
     def get_file_url(self, obj: ARAsset) -> str | None:
-        if not obj.file:
-            return None
-        request = self.context.get('request')
-        if request:
-            return request.build_absolute_uri(obj.file.url)
-        return obj.file.url
+        return media_absolute_url(obj.file, self.context.get('request'))
 
-    def validate_file(self, value):
+    def get_source_image_url(self, obj: ARAsset) -> str | None:
+        return media_absolute_url(obj.source_image, self.context.get('request'))
+
+    def validate_source_image(self, value):
         from catalog.services.ar_assets import validate_ar_upload
 
         return validate_ar_upload(value)
@@ -423,11 +439,27 @@ class ARAssetSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(str(err)) from err
 
     def update(self, instance, validated_data):
+        new_source = validated_data.get('source_image')
+        if new_source is not None and instance.source_image:
+            from catalog.services.media_cleanup import delete_field_file
+
+            delete_field_file(instance.source_image)
+
         if 'anchor_config' in validated_data and validated_data['anchor_config']:
             config = dict(validated_data['anchor_config'])
             config['auto_calibrated'] = False
             validated_data['anchor_config'] = config
-        return super().update(instance, validated_data)
+
+        asset = super().update(instance, validated_data)
+
+        if new_source is not None:
+            asset.status = ARAsset.PENDING
+            asset.process_error = ''
+            asset.save(update_fields=['status', 'process_error', 'updated_at'])
+            from catalog.tasks import enqueue_ar_asset_build
+
+            enqueue_ar_asset_build(asset.id)
+        return asset
 
 
 class PublicARAssetSerializer(serializers.ModelSerializer):
@@ -449,12 +481,7 @@ class PublicARAssetSerializer(serializers.ModelSerializer):
         ]
 
     def get_file_url(self, obj: ARAsset) -> str | None:
-        if not obj.file:
-            return None
-        request = self.context.get('request')
-        if request:
-            return request.build_absolute_uri(obj.file.url)
-        return obj.file.url
+        return media_absolute_url(obj.file, self.context.get('request'))
 
 
 class ProductWithAvailabilitySerializer(ProductListSerializer):
