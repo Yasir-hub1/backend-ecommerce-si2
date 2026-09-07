@@ -41,21 +41,22 @@ BRANCHES = [
 ]
 
 CATEGORIES = [
-    ('Camisas', None),
-    ('Pantalones', None),
-    ('Vestidos', None),
-    ('Faldas', None),
-    ('Chaquetas', None),
     ('Poleras', None),
-    ('Shorts', None),
-    ('Calzado', None),
-    ('Accesorios', None),
-    ('Ropa Interior', None),
+    ('Poleras Básicas', 'Poleras'),
+    ('Poleras Oversize', 'Poleras'),
+    ('Poleras Deportivas', 'Poleras'),
+    ('Poleras Gráficas', 'Poleras'),
+    ('Poleras Premium', 'Poleras'),
+    ('Poleras Kids', 'Poleras'),
+    ('Poleras Manga Larga', 'Poleras'),
+    ('Poleras Polo', 'Poleras'),
+    ('Poleras Crop', 'Poleras'),
 ]
 
 BRANDS = [
-    'Zara Style BO', 'Andes Wear', 'Altiplano Fashion', 'Tropicana',
-    'Urban Fit', 'Classic Man', 'Luna Rosa', 'Sportiva', 'Denim Co', 'Kids Moda',
+    'Cotton Lab', 'Andes Tee', 'Altiplano Basics', 'Tropic Tee',
+    'Urban Fit Tees', 'Classic Tee Co', 'Luna Soft', 'Sportiva Tee',
+    'Soft Knit BO', 'Kids Tee Moda',
 ]
 
 COLORS = [
@@ -70,38 +71,39 @@ SEASONS = [
     ('Otoño-Invierno 2025', 'OI25', 'AUTUMN_WINTER', date(2025, 3, 1), date(2025, 8, 31)),
     ('Escolar 2026', 'ESC26', 'SCHOOL', date(2026, 1, 15), date(2026, 3, 15)),
     ('Promo San Valentín', 'VAL26', 'PROMO', date(2026, 2, 1), date(2026, 2, 28)),
-    ('Nueva Colección Urban', 'NC26', 'NEW_COLLECTION', date(2026, 3, 1), date(2026, 8, 31)),
+    ('Nueva Colección Urban Tee', 'NC26', 'NEW_COLLECTION', date(2026, 3, 1), date(2026, 8, 31)),
     ('Primavera-Verano 2026', 'PV26', 'SPRING_SUMMER', date(2026, 9, 1), date(2027, 2, 28)),
     ('Otoño-Invierno 2026', 'OI26', 'AUTUMN_WINTER', date(2026, 3, 1), date(2026, 8, 31)),
     ('Black Friday 2025', 'BF25', 'PROMO', date(2025, 11, 20), date(2025, 11, 30)),
-    ('Colección Festiva', 'FES25', 'PROMO', date(2025, 12, 1), date(2025, 12, 31)),
-    ('Línea Premium 2026', 'PRE26', 'NEW_COLLECTION', date(2026, 1, 1), date(2026, 12, 31)),
+    ('Colección Festiva Tee', 'FES25', 'PROMO', date(2025, 12, 1), date(2025, 12, 31)),
+    ('Línea Premium Tee 2026', 'PRE26', 'NEW_COLLECTION', date(2026, 1, 1), date(2026, 12, 31)),
 ]
 
+# (name, gender, base_price, category_index, brand_index)
 PRODUCTS = [
-    ('Camisa Oxford Slim', 'MALE', Decimal('289.00'), 0, 0),
-    ('Pantalón Chino Classic', 'MALE', Decimal('320.00'), 1, 1),
-    ('Vestido Floral Midi', 'FEMALE', Decimal('450.00'), 2, 2),
-    ('Falda Plisada Escolar', 'KIDS', Decimal('180.00'), 3, 2),
-    ('Chaqueta Denim', 'UNISEX', Decimal('390.00'), 4, 3),
-    ('Polera Básica Algodón', 'UNISEX', Decimal('120.00'), 5, 4),
-    ('Short Deportivo', 'MALE', Decimal('150.00'), 6, 5),
-    ('Zapatillas Urban Run', 'UNISEX', Decimal('520.00'), 7, 6),
-    ('Cinturón Cuero', 'MALE', Decimal('95.00'), 8, 7),
-    ('Pack Ropa Interior', 'MALE', Decimal('110.00'), 9, 8),
+    ('Polera Básica Algodón', 'UNISEX', Decimal('120.00'), 1, 0),
+    ('Polera Oversize Heavy', 'UNISEX', Decimal('165.00'), 2, 1),
+    ('Polera Deportiva Dry-Fit', 'UNISEX', Decimal('145.00'), 3, 7),
+    ('Polera Gráfica Urban', 'MALE', Decimal('135.00'), 4, 4),
+    ('Polera Premium Pima', 'UNISEX', Decimal('210.00'), 5, 5),
+    ('Polera Kids Estampada', 'KIDS', Decimal('95.00'), 6, 9),
+    ('Polera Manga Larga Soft', 'FEMALE', Decimal('155.00'), 7, 6),
+    ('Polera Polo Clásica', 'MALE', Decimal('180.00'), 8, 5),
+    ('Polera Crop Rib', 'FEMALE', Decimal('130.00'), 9, 2),
+    ('Polera Boxy Street', 'UNISEX', Decimal('170.00'), 2, 3),
 ]
 
 SUPPLIERS = [
     ('Textiles del Sur SRL', 'Textiles del Sur', '100000001'),
     ('Confecciones Altiplano SA', 'Altiplano', '100000002'),
-    ('Importadora Moda Latina', 'Moda Latina', '100000003'),
-    ('Denim Factory BO', 'Denim Factory', '100000004'),
-    ('Calzados Paceños', 'Calzados LPZ', '100000005'),
-    ('Accesorios Chic', 'Chic Acc', '100000006'),
-    ('Kids Fashion Bolivia', 'Kids Fashion', '100000007'),
-    ('Sport Wear Andino', 'Sport Andino', '100000008'),
-    ('Premium Garments', 'Premium G', '100000009'),
-    ('Eco Textil Bolivia', 'Eco Textil', '100000010'),
+    ('Importadora Tee Latina', 'Tee Latina', '100000003'),
+    ('Cotton Knit Factory BO', 'Cotton Knit', '100000004'),
+    ('Jersey Paceño SA', 'Jersey LPZ', '100000005'),
+    ('Print & Tee Chic', 'Print Tee', '100000006'),
+    ('Kids Tee Bolivia', 'Kids Tee', '100000007'),
+    ('Sport Tee Andino', 'Sport Tee', '100000008'),
+    ('Premium Tee Garments', 'Premium Tee', '100000009'),
+    ('Eco Tee Bolivia', 'Eco Tee', '100000010'),
 ]
 
 

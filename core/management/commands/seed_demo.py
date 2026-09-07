@@ -103,7 +103,7 @@ class Command(BaseCommand):
         ChatMessage.objects.filter(session__customer__in=demo_customers).delete()
         ChatSession.objects.filter(customer__in=demo_customers).delete()
         BrowsingEvent.objects.filter(customer__in=demo_customers).delete()
-        ProductEmbedding.objects.filter(product__name__in=[p[0] for p in PRODUCTS]).delete()
+        ProductEmbedding.objects.filter(product__slug__startswith='demo-').delete()
         Notification.objects.filter(user__in=demo_users).delete()
         ReportRequest.objects.filter(user__in=demo_users).delete()
 
@@ -126,16 +126,31 @@ class Command(BaseCommand):
 
         Promotion.objects.filter(code__startswith='DEMO').delete()
 
-        ProductImage.objects.filter(product__name__in=[p[0] for p in PRODUCTS]).delete()
-        ARAsset.objects.filter(product__name__in=[p[0] for p in PRODUCTS]).delete()
-        ProductVariant.objects.filter(product__name__in=[p[0] for p in PRODUCTS]).delete()
-        Product.objects.filter(name__in=[p[0] for p in PRODUCTS]).delete()
+        ProductImage.objects.filter(product__slug__startswith='demo-').delete()
+        ARAsset.objects.filter(product__slug__startswith='demo-').delete()
+        ProductVariant.objects.filter(product__slug__startswith='demo-').delete()
+        Product.objects.filter(slug__startswith='demo-').delete()
         Collection.objects.filter(slug__startswith='demo-').delete()
         Season.objects.filter(code__in=[s[1] for s in SEASONS]).delete()
         Color.objects.filter(name__in=[c[0] for c in COLORS]).delete()
         Size.objects.filter(code__in=['XS', 'S', 'M', 'L', 'XL', '28', '30', '32', '38', '40']).delete()
-        Category.objects.filter(name__in=[c[0] for c in CATEGORIES]).delete()
+        # Hijas primero: Category.parent usa on_delete=PROTECT.
+        Category.objects.filter(name__in=[c[0] for c in CATEGORIES], parent__isnull=False).delete()
+        Category.objects.filter(name__in=[c[0] for c in CATEGORIES], parent__isnull=True).delete()
+        # Limpia categorías del seed mixto anterior (camisas, calzado, etc.).
+        Category.objects.filter(
+            name__in=[
+                'Camisas', 'Pantalones', 'Vestidos', 'Faldas', 'Chaquetas',
+                'Shorts', 'Calzado', 'Accesorios', 'Ropa Interior',
+            ],
+        ).delete()
         Brand.objects.filter(name__in=BRANDS).delete()
+        Brand.objects.filter(
+            name__in=[
+                'Zara Style BO', 'Andes Wear', 'Altiplano Fashion', 'Tropicana',
+                'Urban Fit', 'Classic Man', 'Luna Rosa', 'Sportiva', 'Denim Co', 'Kids Moda',
+            ],
+        ).delete()
 
         EmployeeProfile.objects.filter(user__in=demo_users).delete()
         CustomerProfile.objects.filter(user__in=demo_users).delete()
@@ -193,16 +208,23 @@ class Command(BaseCommand):
             ctx['sizes'].append(size)
 
         ctx['categories'] = []
-        for name, _parent in CATEGORIES:
+        categories_by_name: dict[str, Category] = {}
+        for name, parent_name in CATEGORIES:
+            parent = categories_by_name.get(parent_name) if parent_name else None
             cat, _ = Category.objects.get_or_create(
                 slug=name.lower().replace(' ', '-'),
                 defaults={
                     'name': name,
+                    'parent': parent,
                     'size_group': ctx['size_groups']['top'],
                     'display_order': len(ctx['categories']),
                     'is_active': True,
                 },
             )
+            if parent is not None and cat.parent_id != parent.id:
+                cat.parent = parent
+                cat.save(update_fields=['parent'])
+            categories_by_name[name] = cat
             ctx['categories'].append(cat)
 
         ctx['brands'] = []
@@ -253,20 +275,24 @@ class Command(BaseCommand):
                 slug=f'demo-{pname.lower().replace(" ", "-")[:40]}',
                 defaults={
                     'name': pname,
-                    'description': f'{pname} — prenda demo FashionStore temporada actual.',
+                    'description': (
+                        f'{pname} — polera demo FashionStore, '
+                        'ideal para probador virtual AR.'
+                    ),
                     'category': ctx['categories'][cat_idx],
                     'brand': ctx['brands'][brand_idx],
                     'collection': ctx['collections'][i],
                     'gender': gender,
                     'base_price': price,
-                    'material': 'Algodón / Poliéster',
-                    'care_instructions': 'Lavado a máquina 30°C',
+                    'material': '100% Algodón peinado',
+                    'care_instructions': 'Lavado a máquina 30°C, no usar blanqueador',
                     'is_active': True,
                 },
             )
             ctx['products'].append(product)
 
-            size = ctx['sizes'][2] if cat_idx != 7 else ctx['sizes'][8]
+            # Poleras usan tallas superiores (M por defecto).
+            size = ctx['sizes'][2]
             color = ctx['colors'][i]
             variant, _ = ProductVariant.objects.get_or_create(
                 product=product, size=size, color=color,
@@ -627,7 +653,7 @@ class Command(BaseCommand):
         self.stdout.write('')
         self.stdout.write('Resumen de datos demo:')
         self.stdout.write(f'  Sucursales: {Branch.objects.filter(code__in=[b[0] for b in BRANCHES]).count()}')
-        self.stdout.write(f'  Productos:  {Product.objects.filter(name__in=[p[0] for p in PRODUCTS]).count()}')
+        self.stdout.write(f'  Productos:  {Product.objects.filter(slug__startswith="demo-").count()}')
         self.stdout.write(f'  Variantes:  {ProductVariant.objects.filter(product__in=ctx.get("products", [])).count()}')
         self.stdout.write(f'  Stock:      {BranchStock.objects.count()} registros')
         self.stdout.write(f'  Reservas:   {Reservation.objects.filter(notes__startswith="[demo]").count()}')

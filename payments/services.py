@@ -361,38 +361,210 @@ def _handle_checkout_session_completed(event: Dict) -> Dict:
     }
 
 
-def _handle_payment_succeeded(event: Dict) -> Dict:
-    payment_intent = event['data']['object']
-    payment = _find_payment_for_intent(payment_intent)
+def _payment_intent_payload(intent) -> Dict:
+    """Normalize Stripe PaymentIntent (SDK object or dict) for finalize helpers."""
+    if isinstance(intent, dict):
+        return intent
+    return {
+        'id': intent.id,
+        'status': intent.status,
+        'metadata': dict(intent.metadata or {}),
+        'latest_charge': intent.latest_charge,
+    }
 
-    payment.status = PaymentStatus.SUCCEEDED
-    payment.paid_at = timezone.now()
-    payment.provider_charge_id = payment_intent.get('latest_charge')
-    payment.save(update_fields=['status', 'paid_at', 'provider_charge_id', 'updated_at'])
+
+def _finalize_succeeded_payment(*, payment: Payment, payment_intent: Dict) -> Dict:
+    """
+    Mark payment + order as paid and generate receipt.
+
+    Idempotent: safe if webhook and client confirm race.
+    """
+    if payment.status != PaymentStatus.SUCCEEDED:
+        payment.status = PaymentStatus.SUCCEEDED
+        payment.paid_at = timezone.now()
+        charge_id = payment_intent.get('latest_charge')
+        if isinstance(charge_id, str):
+            payment.provider_charge_id = charge_id
+        elif charge_id is not None and hasattr(charge_id, 'id'):
+            payment.provider_charge_id = charge_id.id
+        payment.save(
+            update_fields=['status', 'paid_at', 'provider_charge_id', 'updated_at']
+        )
 
     from orders.services import mark_order_as_paid
 
-    try:
-        order = mark_order_as_paid(order_id=payment.order_id, payment=payment)
-    except BusinessError as err:
-        return {
-            'status': 'payment_succeeded_but_order_cancelled',
-            'order_code': payment.order.code,
-            'reason': err.message,
-        }
+    paid_statuses = {
+        OrderStatus.PAID,
+        OrderStatus.PREPARING,
+        OrderStatus.READY,
+        OrderStatus.DELIVERED,
+    }
 
-    try:
-        receipt = generate_receipt(order_id=order.id)
-    except Exception as err:
-        logger.exception("Error generating receipt for order %s: %s", order.code, err)
-        receipt = None
+    order = Order.objects.select_related('branch', 'customer').get(pk=payment.order_id)
+
+    if order.status == OrderStatus.PENDING_PAYMENT:
+        try:
+            order = mark_order_as_paid(order_id=payment.order_id, payment=payment)
+        except BusinessError as err:
+            order.refresh_from_db()
+            if order.status not in paid_statuses:
+                return {
+                    'status': 'payment_succeeded_but_order_cancelled',
+                    'order_code': order.code,
+                    'reason': err.message,
+                    'payment_id': payment.id,
+                }
+
+    receipt = None
+    if order.status in paid_statuses:
+        try:
+            if hasattr(order, 'receipt') and order.receipt:
+                receipt = order.receipt
+            else:
+                receipt = generate_receipt(order_id=order.id)
+        except Exception as err:
+            logger.exception(
+                'Error generating receipt for order %s: %s', order.code, err
+            )
 
     return {
         'status': 'payment_succeeded',
         'order_code': order.code,
+        'order_id': order.id,
+        'order_status': order.status,
         'payment_id': payment.id,
         'receipt_id': receipt.id if receipt else None,
     }
+
+
+def _handle_payment_succeeded(event: Dict) -> Dict:
+    payment_intent = event['data']['object']
+    payment = _find_payment_for_intent(payment_intent)
+    return _finalize_succeeded_payment(
+        payment=payment,
+        payment_intent=payment_intent,
+    )
+
+
+@transaction.atomic
+def confirm_stripe_payment_intent(*, order_id: int) -> Dict:
+    """
+    Client-side confirmation after PaymentSheet succeeds.
+
+    Stripe may charge before the webhook reaches localhost; this polls Stripe
+    and applies the same finalize path as payment_intent.succeeded.
+    """
+    try:
+        order = Order.objects.select_related('customer', 'branch').get(pk=order_id)
+    except Order.DoesNotExist as err:
+        raise BusinessError(
+            code='ORDER_NOT_FOUND',
+            message='Orden no encontrada',
+            status_code=404,
+        ) from err
+
+    paid_statuses = {
+        OrderStatus.PAID,
+        OrderStatus.PREPARING,
+        OrderStatus.READY,
+        OrderStatus.DELIVERED,
+    }
+    if order.status in paid_statuses:
+        receipt = None
+        try:
+            if hasattr(order, 'receipt') and order.receipt:
+                receipt = order.receipt
+            else:
+                receipt = generate_receipt(order_id=order.id)
+        except Exception as err:
+            logger.exception(
+                'Error generating receipt for order %s: %s', order.code, err
+            )
+        return {
+            'status': 'already_paid',
+            'order_code': order.code,
+            'order_id': order.id,
+            'order_status': order.status,
+            'receipt_id': receipt.id if receipt else None,
+        }
+
+    if order.status != OrderStatus.PENDING_PAYMENT:
+        raise BusinessError(
+            code='INVALID_ORDER_STATUS',
+            message=(
+                f'La orden no está pendiente de pago. '
+                f'Estado: {order.get_status_display()}'
+            ),
+            status_code=400,
+            details={'order_code': order.code, 'current_status': order.status},
+        )
+
+    payment = (
+        Payment.objects.select_related('order')
+        .filter(
+            order=order,
+            method=PaymentMethod.CARD_ONLINE,
+            provider=PaymentProvider.STRIPE,
+            status__in={PaymentStatus.PENDING, PaymentStatus.SUCCEEDED},
+        )
+        .order_by('-created_at')
+        .first()
+    )
+    if not payment or not payment.provider_payment_intent_id:
+        raise BusinessError(
+            code='PAYMENT_NOT_FOUND',
+            message='No hay PaymentIntent pendiente para esta orden',
+            status_code=404,
+            details={'order_code': order.code},
+        )
+
+    try:
+        intent = stripe.PaymentIntent.retrieve(payment.provider_payment_intent_id)
+    except stripe.error.StripeError as err:
+        raise BusinessError(
+            code='STRIPE_ERROR',
+            message=f'Error al consultar PaymentIntent: {err}',
+            status_code=502,
+            details={'stripe_error': str(err)},
+        ) from err
+
+    pi = _payment_intent_payload(intent)
+
+    if intent.status == 'succeeded':
+        return _finalize_succeeded_payment(payment=payment, payment_intent=pi)
+
+    if intent.status in {'processing', 'requires_capture'}:
+        return {
+            'status': 'processing',
+            'order_code': order.code,
+            'order_id': order.id,
+            'order_status': order.status,
+            'payment_intent_status': intent.status,
+        }
+
+    if intent.status in {'canceled', 'requires_payment_method'}:
+        if payment.status == PaymentStatus.PENDING:
+            payment.status = PaymentStatus.FAILED
+            payment.save(update_fields=['status', 'updated_at'])
+        raise BusinessError(
+            code='PAYMENT_NOT_COMPLETED',
+            message='El pago no se completó en Stripe',
+            status_code=400,
+            details={
+                'order_code': order.code,
+                'payment_intent_status': intent.status,
+            },
+        )
+
+    raise BusinessError(
+        code='PAYMENT_NOT_COMPLETED',
+        message='El pago aún no está confirmado en Stripe',
+        status_code=400,
+        details={
+            'order_code': order.code,
+            'payment_intent_status': intent.status,
+        },
+    )
 
 
 def _handle_payment_failed(event: Dict) -> Dict:

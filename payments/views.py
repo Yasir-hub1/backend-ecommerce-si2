@@ -10,8 +10,9 @@ from django.utils.decorators import method_decorator
 from django.conf import settings
 from django.http import HttpResponse
 
-from payments.serializers import CreateCheckoutSessionSerializer
+from payments.serializers import ConfirmPaymentIntentSerializer, CreateCheckoutSessionSerializer
 from payments.services import (
+    confirm_stripe_payment_intent,
     create_stripe_checkout_session,
     create_stripe_payment_intent,
     get_stripe_checkout_session_status,
@@ -51,6 +52,41 @@ class CreatePaymentIntentView(generics.CreateAPIView):
         try:
             intent_data = create_stripe_payment_intent(order_id=order_id)
             return Response({'message': 'PaymentIntent creado', **intent_data}, status=status.HTTP_201_CREATED)
+        except BusinessError as e:
+            return Response(
+                {'code': e.code, 'message': e.message, 'details': e.details},
+                status=e.status_code,
+            )
+
+
+class ConfirmPaymentIntentView(APIView):
+    """
+    Confirm PaymentIntent after mobile PaymentSheet success.
+
+    Polls Stripe and finalizes payment when webhooks are delayed/unavailable.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = ConfirmPaymentIntentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        order_id = serializer.validated_data['order_id']
+
+        from orders.models import Order
+        from accounts.models import Role
+
+        try:
+            order = Order.objects.get(id=order_id)
+        except Order.DoesNotExist:
+            return Response({'detail': 'Orden no encontrada'}, status=status.HTTP_404_NOT_FOUND)
+
+        if request.user.role != Role.ADMIN:
+            if not order.customer or order.customer.user_id != request.user.id:
+                return Response({'detail': 'No autorizado'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            result = confirm_stripe_payment_intent(order_id=order_id)
+            return Response({'message': 'Pago confirmado', **result})
         except BusinessError as e:
             return Response(
                 {'code': e.code, 'message': e.message, 'details': e.details},

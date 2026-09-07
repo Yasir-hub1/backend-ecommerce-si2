@@ -63,5 +63,7 @@ class BranchListSerializer(serializers.ModelSerializer):
             'address',
             'latitude',
             'longitude',
+            'opens_at',
+            'closes_at',
             'is_active',
         ]

@@ -266,11 +266,15 @@ class ProductVariantDetailSerializer(serializers.ModelSerializer):
     """Detailed variant serializer with stock info."""
     size = SizeSerializer(read_only=True)
     color = ColorSerializer(read_only=True)
+    product_id = serializers.IntegerField(read_only=True)
+    product_name = serializers.CharField(source='product.name', read_only=True)
 
     class Meta:
         model = ProductVariant
         fields = [
             'id',
+            'product_id',
+            'product_name',
             'sku',
             'size',
             'color',
@@ -281,7 +285,15 @@ class ProductVariantDetailSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'sku', 'effective_price', 'created_at', 'updated_at']
+        read_only_fields = [
+            'id',
+            'product_id',
+            'product_name',
+            'sku',
+            'effective_price',
+            'created_at',
+            'updated_at',
+        ]
 
 
 class ProductListSerializer(serializers.ModelSerializer):

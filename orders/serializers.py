@@ -1,16 +1,18 @@
 """
 Serializers for orders app.
 """
+from typing import Optional
 from rest_framework import serializers
 from decimal import Decimal
 
 from catalog.models import ProductVariant
 from catalog.serializers import ProductVariantListSerializer
+from inventory.services import get_stock_levels
 from orders.models import Cart, CartItem, Order, OrderItem, OrderStatus, OrderChannel
 
 
 class CartItemSerializer(serializers.ModelSerializer):
-    """Cart item serializer."""
+    """Cart item serializer with optional per-branch stock fields."""
     variant = ProductVariantListSerializer(read_only=True)
     variant_id = serializers.PrimaryKeyRelatedField(
         queryset=ProductVariant.objects.filter(is_active=True),
@@ -18,6 +20,10 @@ class CartItemSerializer(serializers.ModelSerializer):
         write_only=True,
     )
     line_total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+    product_name = serializers.CharField(source='variant.product.name', read_only=True)
+    available_qty = serializers.SerializerMethodField()
+    in_stock = serializers.SerializerMethodField()
+    stock_status = serializers.SerializerMethodField()
 
     class Meta:
         model = CartItem
@@ -27,10 +33,23 @@ class CartItemSerializer(serializers.ModelSerializer):
             'variant_id',
             'quantity',
             'line_total',
+            'product_name',
+            'available_qty',
+            'in_stock',
+            'stock_status',
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'line_total', 'created_at', 'updated_at']
+        read_only_fields = [
+            'id',
+            'line_total',
+            'product_name',
+            'available_qty',
+            'in_stock',
+            'stock_status',
+            'created_at',
+            'updated_at',
+        ]
 
     def validate_quantity(self, value):
         """Validate quantity is positive."""
@@ -38,12 +57,54 @@ class CartItemSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("La cantidad debe ser al menos 1")
         return value
 
+    def _available_for_item(self, obj) -> Optional[int]:
+        """Return available units for the cart line's branch context, or None if unknown."""
+        stock_by_variant = self.context.get('stock_by_variant')
+        if stock_by_variant is not None:
+            levels = stock_by_variant.get(obj.variant_id)
+            if levels is None:
+                return 0
+            return int(levels['available'])
+
+        branch = self.context.get('branch')
+        if branch is None:
+            return None
+        return int(get_stock_levels(branch=branch, variant_id=obj.variant_id)['available'])
+
+    def get_available_qty(self, obj):
+        return self._available_for_item(obj)
+
+    def get_in_stock(self, obj):
+        available = self._available_for_item(obj)
+        if available is None:
+            return None
+        return available >= obj.quantity
+
+    def get_stock_status(self, obj):
+        """
+        OK — enough stock for cart quantity
+        LOW — some stock but less than requested
+        OUT — zero available
+        UNKNOWN — no branch selected yet
+        """
+        available = self._available_for_item(obj)
+        if available is None:
+            return 'UNKNOWN'
+        if available <= 0:
+            return 'OUT'
+        if available < obj.quantity:
+            return 'LOW'
+        return 'OK'
+
 
 class CartSerializer(serializers.ModelSerializer):
-    """Cart serializer with items."""
+    """Cart serializer with items and aggregate stock flags."""
     items = CartItemSerializer(many=True, read_only=True)
     total_items = serializers.IntegerField(read_only=True)
     subtotal = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+    branch_id = serializers.SerializerMethodField()
+    all_in_stock = serializers.SerializerMethodField()
+    has_stock_issues = serializers.SerializerMethodField()
 
     class Meta:
         model = Cart
@@ -53,10 +114,41 @@ class CartSerializer(serializers.ModelSerializer):
             'items',
             'total_items',
             'subtotal',
+            'branch_id',
+            'all_in_stock',
+            'has_stock_issues',
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'customer', 'created_at', 'updated_at']
+        read_only_fields = [
+            'id',
+            'customer',
+            'branch_id',
+            'all_in_stock',
+            'has_stock_issues',
+            'created_at',
+            'updated_at',
+        ]
+
+    def get_branch_id(self, obj):
+        branch = self.context.get('branch')
+        return branch.id if branch is not None else None
+
+    def get_all_in_stock(self, obj):
+        branch = self.context.get('branch')
+        if branch is None:
+            return None
+        item_serializer = CartItemSerializer(context=self.context)
+        return all(
+            item_serializer.get_in_stock(item) is True
+            for item in obj.items.all()
+        )
+
+    def get_has_stock_issues(self, obj):
+        all_ok = self.get_all_in_stock(obj)
+        if all_ok is None:
+            return None
+        return not all_ok
 
 
 class OrderItemSerializer(serializers.ModelSerializer):

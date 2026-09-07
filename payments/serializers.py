@@ -59,3 +59,16 @@ class CreateCheckoutSessionSerializer(serializers.Serializer):
             )
 
         return value
+
+
+class ConfirmPaymentIntentSerializer(serializers.Serializer):
+    """Confirm PaymentIntent after client-side PaymentSheet success."""
+
+    order_id = serializers.IntegerField()
+
+    def validate_order_id(self, value):
+        from orders.models import Order
+
+        if not Order.objects.filter(id=value).exists():
+            raise serializers.ValidationError('Orden no encontrada')
+        return value

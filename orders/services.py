@@ -11,7 +11,7 @@ from django.utils import timezone
 from core.exceptions import BusinessError
 from orders.models import Cart, Order, OrderItem, OrderStatus, OrderChannel
 from reservations.models import Reservation, ReservationStatus, ItemStatus
-from inventory.services import apply_movements, check_availability
+from inventory.services import apply_movements, check_availability, get_stock_levels
 from inventory.models import MovementType, ReferenceType
 
 PAID_ORDER_STATUSES = [
@@ -78,12 +78,14 @@ def checkout_from_cart(
                 'variant_id': item.variant_id,
                 'product_name': item.variant.product.name,
                 'quantity': item.quantity,
+                'available_qty': get_stock_levels(branch=branch, variant_id=item.variant_id)['available'],
             })
 
     if unavailable:
+        names = ', '.join(entry['product_name'] for entry in unavailable)
         raise BusinessError(
             code='INSUFFICIENT_STOCK',
-            message='Algunos artículos ya no tienen stock disponible',
+            message=f'Sin stock suficiente en esta sucursal: {names}',
             status_code=409,
             details={'unavailable_items': unavailable}
         )

@@ -24,11 +24,46 @@ from orders.services import checkout_from_cart, cancel_order, refund_order
 from core.permissions import IsAdmin, IsBranchStaff
 from core.exceptions import BusinessError
 from accounts.models import Role
+from branches.models import Branch
+from inventory.models import BranchStock
 from orders.receipts import (
     get_or_create_order_receipt,
     receipt_number,
     user_can_access_order_receipt,
 )
+
+
+def _resolve_cart_branch(request):
+    """Resolve branch from ?branch= / body branch_id for cart stock context."""
+    raw = request.query_params.get('branch') or request.data.get('branch_id')
+    if raw in (None, ''):
+        return None
+    try:
+        branch_id = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return Branch.objects.filter(id=branch_id, is_active=True).first()
+
+
+def _cart_serializer_context(request, cart):
+    context = {'request': request}
+    branch = _resolve_cart_branch(request)
+    if branch is None:
+        return context
+
+    variant_ids = list(cart.items.values_list('variant_id', flat=True))
+    stock_rows = BranchStock.objects.filter(branch=branch, variant_id__in=variant_ids)
+    stock_by_variant = {
+        row.variant_id: {
+            'on_hand': row.on_hand,
+            'reserved': row.reserved,
+            'available': row.on_hand - row.reserved,
+        }
+        for row in stock_rows
+    }
+    context['branch'] = branch
+    context['stock_by_variant'] = stock_by_variant
+    return context
 
 
 class OrderFilter(FilterSet):
@@ -44,6 +79,7 @@ class CartViewSet(viewsets.ViewSet):
     Shopping cart management.
 
     Customers manage their own cart.
+    Pass ?branch=<id> to include per-item stock relative to that branch.
     """
     permission_classes = [IsAuthenticated]
 
@@ -70,9 +106,9 @@ class CartViewSet(viewsets.ViewSet):
         cart_data = Cart.objects.filter(id=cart.id).annotate(
             total_items=Count('items'),
             subtotal=Sum(F('items__quantity') * F('items__variant__product__base_price'))
-        ).first()
+        ).prefetch_related('items__variant__product', 'items__variant__size', 'items__variant__color').first()
 
-        serializer = CartSerializer(cart_data, context={'request': request})
+        serializer = CartSerializer(cart_data, context=_cart_serializer_context(request, cart_data))
         return Response(serializer.data)
 
     @action(detail=False, methods=['post'])
@@ -105,13 +141,11 @@ class CartViewSet(viewsets.ViewSet):
             cart_item.quantity += quantity
             cart_item.save()
 
-        # Return updated cart
         cart_data = Cart.objects.filter(id=cart.id).annotate(
             total_items=Count('items'),
             subtotal=Sum(F('items__quantity') * F('items__variant__product__base_price'))
-        ).first()
-
-        cart_serializer = CartSerializer(cart_data, context={'request': request})
+        ).prefetch_related('items__variant__product', 'items__variant__size', 'items__variant__color').first()
+        cart_serializer = CartSerializer(cart_data, context=_cart_serializer_context(request, cart_data))
 
         return Response(
             {
@@ -125,8 +159,8 @@ class CartViewSet(viewsets.ViewSet):
         cart_data = Cart.objects.filter(id=cart_id).annotate(
             total_items=Count('items'),
             subtotal=Sum(F('items__quantity') * F('items__variant__product__base_price'))
-        ).first()
-        serializer = CartSerializer(cart_data, context={'request': request})
+        ).prefetch_related('items__variant__product', 'items__variant__size', 'items__variant__color').first()
+        serializer = CartSerializer(cart_data, context=_cart_serializer_context(request, cart_data))
         return Response(serializer.data)
 
     @action(detail=False, methods=['patch', 'delete'], url_path='items/(?P<item_id>[^/.]+)')
