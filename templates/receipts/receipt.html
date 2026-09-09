@@ -226,7 +226,7 @@
                     {{ item.variant.product.name }}<br>
                     <small style="color: #666;">SKU: {{ item.variant.sku }}</small>
                 </td>
-                <td class="text-center">{{ item.variant.size.name }}</td>
+                <td class="text-center">{{ item.variant.size.code }}</td>
                 <td class="text-center">{{ item.variant.color.name }}</td>
                 <td class="text-right">{{ item.quantity }}</td>
                 <td class="text-right">{{ order.currency }} {{ item.unit_price|floatformat:2 }}</td>
