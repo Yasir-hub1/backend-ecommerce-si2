@@ -12,7 +12,7 @@ from catalog.models import ProductVariant
 from accounts.services.staff import parse_branch_id, resolve_operating_branch
 from core.exceptions import BusinessError
 from inventory.services import get_stock_levels
-from orders.models import Order, OrderItem, OrderStatus
+from orders.models import Order, OrderChannel, OrderItem, OrderStatus
 from orders.services import PAID_ORDER_STATUSES
 from payments.models import Payment, PaymentMethod, PaymentStatus
 
