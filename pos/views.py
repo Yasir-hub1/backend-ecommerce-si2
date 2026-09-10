@@ -274,20 +274,40 @@ class POSOrderViewSet(POSBranchMixin, POSPermissionMixin, viewsets.ReadOnlyModel
     filterset_class = POSOrderFilter
 
     def get_queryset(self):
+        base = self.queryset.filter(
+            channel=OrderChannel.POS,
+            status__in=PAID_ORDER_STATUSES,
+        )
+        user = self.request.user
+
+        # Detail / receipt: do not use admin's default branch fallback — the PDF
+        # URL usually has no branch_id, and the sale may belong to another branch.
+        if self.action in ('retrieve', 'receipt', 'receipt_pdf'):
+            if user.role == Role.ADMIN or user.is_superuser:
+                return base
+            if user.role in (Role.BRANCH_MANAGER, Role.CASHIER):
+                try:
+                    branch = user.employee_profile.branch
+                except AttributeError:
+                    return Order.objects.none()
+                qs = base.filter(branch=branch)
+                if user.role == Role.CASHIER:
+                    qs = qs.filter(created_by=user)
+                return qs
+            try:
+                branch = self.resolve_pos_branch(self.request)
+            except BusinessError:
+                return Order.objects.none()
+            return base.filter(branch=branch)
+
         try:
             branch = self.resolve_pos_branch(self.request)
         except BusinessError:
             return Order.objects.none()
 
-        qs = self.queryset.filter(
-            channel=OrderChannel.POS,
-            branch=branch,
-            status__in=PAID_ORDER_STATUSES,
-        )
-
-        if self.request.user.role == Role.CASHIER:
-            qs = qs.filter(created_by=self.request.user)
-
+        qs = base.filter(branch=branch)
+        if user.role == Role.CASHIER:
+            qs = qs.filter(created_by=user)
         return qs.order_by('-paid_at')
 
     def list(self, request, *args, **kwargs):
