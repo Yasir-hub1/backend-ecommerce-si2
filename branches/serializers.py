@@ -65,5 +65,6 @@ class BranchListSerializer(serializers.ModelSerializer):
             'longitude',
             'opens_at',
             'closes_at',
+            'fitting_rooms',
             'is_active',
         ]

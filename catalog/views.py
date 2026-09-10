@@ -117,23 +117,23 @@ class ColorViewSet(ReferenceCountQuerysetMixin, PublicReadRBACWriteMixin, viewse
 
 class SeasonViewSet(ReferenceCountQuerysetMixin, PublicReadRBACWriteMixin, viewsets.ModelViewSet):
     """Season management (RF05, RF23)."""
-    queryset = Season.objects.filter(is_active=True).order_by('-starts_on')
+    queryset = Season.objects.all().order_by('-starts_on')
     serializer_class = SeasonSerializer
     write_permission = CATALOG_WRITE
     reference_count_fields = {'collections_count': 'collections'}
 
     def get_queryset(self):
+        from accounts.models import Role
+
         qs = super().get_queryset().order_by('-starts_on')
-        if self.request.user.is_authenticated and hasattr(self.request.user, 'role'):
-            from accounts.models import Role
-            if self.request.user.role == Role.ADMIN:
-                return qs
+        if self.request.user.is_authenticated and getattr(self.request.user, 'role', None) == Role.ADMIN:
+            return qs
         return qs.filter(is_active=True)
 
 
 class CollectionViewSet(ReferenceCountQuerysetMixin, PublicReadRBACWriteMixin, viewsets.ModelViewSet):
     """Collection management (RF23). Filter by season for tallas/colecciones por temporada."""
-    queryset = Collection.objects.select_related('season').filter(is_active=True).order_by('-created_at')
+    queryset = Collection.objects.select_related('season').all().order_by('-created_at')
     serializer_class = CollectionSerializer
     write_permission = CATALOG_WRITE
     filter_backends = [DjangoFilterBackend]
@@ -141,11 +141,11 @@ class CollectionViewSet(ReferenceCountQuerysetMixin, PublicReadRBACWriteMixin, v
     reference_count_fields = {'products_count': 'products'}
 
     def get_queryset(self):
+        from accounts.models import Role
+
         qs = super().get_queryset().select_related('season').order_by('-launch_date', '-created_at')
-        if self.request.user.is_authenticated and hasattr(self.request.user, 'role'):
-            from accounts.models import Role
-            if self.request.user.role == Role.ADMIN:
-                return qs
+        if self.request.user.is_authenticated and getattr(self.request.user, 'role', None) == Role.ADMIN:
+            return qs
         return qs.filter(is_active=True)
 
 

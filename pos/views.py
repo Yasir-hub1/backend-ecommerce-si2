@@ -299,9 +299,12 @@ class POSOrderViewSet(POSBranchMixin, POSPermissionMixin, viewsets.ReadOnlyModel
             {
                 'id': order.id,
                 'code': order.code,
+                'status': order.status,
+                'status_display': order.get_status_display(),
                 'grand_total': str(order.grand_total),
                 'currency': order.currency,
                 'paid_at': order.paid_at,
+                'created_at': order.created_at,
                 'customer_name': (
                     order.customer.user.get_full_name()
                     if order.customer_id
