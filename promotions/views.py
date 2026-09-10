@@ -13,7 +13,7 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 
 from promotions.models import Promotion
 from promotions.serializers import PromotionSerializer, PromotionValidateSerializer
-from core.mixins import PublicReadRBACWriteMixin, RBACMixin
+from core.mixins import PublicReadRBACWriteMixin
 
 
 class PromotionViewSet(PublicReadRBACWriteMixin, viewsets.ModelViewSet):

@@ -1,6 +1,8 @@
 """
 Serializers for promotions app.
 """
+from decimal import Decimal
+
 from rest_framework import serializers
 
 from promotions.models import DiscountType, Promotion
@@ -20,7 +22,7 @@ class PromotionSerializer(serializers.ModelSerializer):
         source='value',
         max_digits=10,
         decimal_places=2,
-        min_value=0,
+        min_value=Decimal('0'),
     )
     uses_count = serializers.IntegerField(source='used_count', read_only=True)
     description = serializers.CharField(required=False, allow_blank=True, write_only=True, default='')
@@ -81,3 +83,14 @@ class PromotionSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         validated_data.pop('description', None)
         return super().update(instance, validated_data)
+
+
+class PromotionValidateSerializer(serializers.Serializer):
+    """Input for POST /promotions/validate/ before checkout."""
+
+    code = serializers.CharField(max_length=50)
+    order_amount = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        min_value=Decimal('0'),
+    )
