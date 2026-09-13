@@ -6,7 +6,16 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 
-from accounts.models import User, CustomerProfile, EmployeeProfile, Role, RoleDefinition, Gender, Position
+from accounts.models import (
+    Bitacora,
+    CustomerProfile,
+    EmployeeProfile,
+    Gender,
+    Position,
+    Role,
+    RoleDefinition,
+    User,
+)
 from branches.models import Branch
 
 
@@ -337,3 +346,30 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
                 'password_confirm': 'Las contraseñas no coinciden',
             })
         return attrs
+
+
+class BitacoraSerializer(serializers.ModelSerializer):
+    """Read-only serializer for the system audit log."""
+
+    action_display = serializers.CharField(source='get_action_display', read_only=True)
+
+    class Meta:
+        model = Bitacora
+        fields = [
+            'id',
+            'user',
+            'user_email',
+            'user_full_name',
+            'action',
+            'action_display',
+            'module',
+            'resource',
+            'object_id',
+            'description',
+            'method',
+            'path',
+            'ip_address',
+            'metadata',
+            'created_at',
+        ]
+        read_only_fields = fields

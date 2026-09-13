@@ -15,6 +15,7 @@ from accounts.views import (
     PasswordResetRequestView,
     PasswordResetConfirmView,
 )
+from accounts.bitacora_views import BitacoraViewSet
 from accounts.rbac_views import (
     AppPermissionViewSet,
     RoleDefinitionViewSet,
@@ -27,6 +28,7 @@ router.register(r'customers', CustomerProfileViewSet, basename='customer')
 router.register(r'employees', EmployeeProfileViewSet, basename='employee')
 router.register(r'permissions', AppPermissionViewSet, basename='permission')
 router.register(r'roles', RoleDefinitionViewSet, basename='role')
+router.register(r'bitacora', BitacoraViewSet, basename='bitacora')
 
 urlpatterns = [
     # Authentication

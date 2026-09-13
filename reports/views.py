@@ -1,6 +1,7 @@
 """Reports API views."""
 from django.http import HttpResponse
 from rest_framework import viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -10,7 +11,14 @@ from core.exceptions import BusinessError
 from core.permissions import HasAppPermission
 from reports.models import ReportRequest
 from reports.serializers import GenerateReportSerializer, ReportRequestSerializer
-from reports.services import EXPORT_REPORT_TYPES, build_report_summary, export_report_csv, generate_report
+from reports.services import (
+    EXPORT_REPORT_TYPES,
+    build_dashboard,
+    build_report_summary,
+    clamp_dashboard_days,
+    export_report_csv,
+    generate_report,
+)
 
 
 class ReportsAccessMixin:
@@ -27,6 +35,34 @@ class ReportSummaryView(ReportsAccessMixin, APIView):
             date_to=request.query_params.get('to'),
         )
         return Response(summary)
+
+
+class DashboardView(APIView):
+    """Staff-only statistical panel for the admin home (RF25)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        if user.role == Role.CUSTOMER:
+            raise PermissionDenied('El panel estadístico es solo para personal.')
+
+        branch_id = request.query_params.get('branch_id')
+        if user.role in (Role.BRANCH_MANAGER, Role.CASHIER):
+            try:
+                branch_id = user.employee_profile.branch_id
+            except Exception:
+                branch_id = None
+        elif branch_id:
+            try:
+                branch_id = int(branch_id)
+            except (TypeError, ValueError):
+                branch_id = None
+        else:
+            branch_id = None
+
+        days = clamp_dashboard_days(request.query_params.get('days'))
+        return Response(build_dashboard(branch_id=branch_id, days=days))
 
 
 class ReportRequestViewSet(ReportsAccessMixin, viewsets.ReadOnlyModelViewSet):

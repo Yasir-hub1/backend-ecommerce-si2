@@ -1,9 +1,11 @@
 from datetime import date
 
 from django.test import SimpleTestCase, TestCase
+from rest_framework.test import APIClient
 
+from accounts.models import Role, User
 from reports.prompt_interpreter import InterpretedReportSpec, interpret_prompt
-from reports.services import render_generative_report
+from reports.services import clamp_dashboard_days, render_generative_report
 
 
 class PromptInterpreterTests(SimpleTestCase):
@@ -116,3 +118,47 @@ class ReportRendererTests(SimpleTestCase):
         self.assertIn('Productos con menor venta:', text)
         self.assertIn('Producto menos vendido del periodo: Falda Plisada Escolar', text)
         self.assertNotIn('Mejor producto del periodo', text)
+
+
+class DashboardDaysTests(SimpleTestCase):
+    def test_clamps_to_allowed_windows(self):
+        self.assertEqual(clamp_dashboard_days(7), 7)
+        self.assertEqual(clamp_dashboard_days('30'), 30)
+        self.assertEqual(clamp_dashboard_days('99'), 30)
+        self.assertEqual(clamp_dashboard_days(None), 30)
+
+
+class DashboardApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_user(
+            email='admin-dash@example.com',
+            password='Segura1234',
+            first_name='Ana',
+            last_name='Admin',
+            role=Role.ADMIN,
+            is_staff=True,
+        )
+        self.customer = User.objects.create_user(
+            email='cli-dash@example.com',
+            password='Segura1234',
+            first_name='Luis',
+            last_name='Cliente',
+            role=Role.CUSTOMER,
+        )
+
+    def test_staff_receives_filled_series(self):
+        self.client.force_authenticate(self.admin)
+        response = self.client.get('/api/v1/reports/dashboard/', {'days': 7})
+        self.assertEqual(response.status_code, 200)
+        payload = response.data
+        self.assertEqual(len(payload['sales_by_day']), 7)
+        self.assertEqual(payload['kpis']['order_count'], 0)
+        self.assertEqual(payload['period']['days'], 7)
+        self.assertIn('top_products', payload)
+        self.assertIn('low_stock_items', payload)
+
+    def test_customer_is_forbidden(self):
+        self.client.force_authenticate(self.customer)
+        response = self.client.get('/api/v1/reports/dashboard/')
+        self.assertEqual(response.status_code, 403)

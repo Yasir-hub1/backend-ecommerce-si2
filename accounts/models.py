@@ -380,3 +380,76 @@ class EmployeeProfile(TimeStampedModel):
         """Run clean before save."""
         self.clean()
         super().save(*args, **kwargs)
+
+
+class BitacoraAction:
+    """Append-only audit actions recorded in ``Bitacora``."""
+
+    CREATE = 'CREATE'
+    UPDATE = 'UPDATE'
+    DELETE = 'DELETE'
+    LOGIN = 'LOGIN'
+    LOGIN_FAILED = 'LOGIN_FAILED'
+    REGISTER = 'REGISTER'
+    OTHER = 'OTHER'
+
+    CHOICES = [
+        (CREATE, 'Creación'),
+        (UPDATE, 'Actualización'),
+        (DELETE, 'Eliminación'),
+        (LOGIN, 'Inicio de sesión'),
+        (LOGIN_FAILED, 'Inicio de sesión fallido'),
+        (REGISTER, 'Registro'),
+        (OTHER, 'Otra acción'),
+    ]
+
+
+class Bitacora(models.Model):
+    """
+    Ledger of user actions across every API module.
+
+    Append-only: rows are never updated. ``user`` may be null (login
+    failure, webhook) but ``user_email`` keeps a human-readable trail.
+    """
+
+    user = models.ForeignKey(
+        'User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='bitacora_entries',
+        verbose_name='Usuario',
+    )
+    user_email = models.EmailField('Correo del usuario', blank=True)
+    user_full_name = models.CharField('Nombre del usuario', max_length=160, blank=True)
+    action = models.CharField(
+        'Acción',
+        max_length=20,
+        choices=BitacoraAction.CHOICES,
+        db_index=True,
+    )
+    module = models.CharField('Módulo', max_length=50, db_index=True)
+    resource = models.CharField('Recurso', max_length=80, blank=True)
+    object_id = models.CharField('ID del objeto', max_length=64, blank=True)
+    description = models.TextField('Descripción')
+    method = models.CharField('Método HTTP', max_length=10, blank=True)
+    path = models.CharField('Ruta', max_length=255, blank=True)
+    ip_address = models.GenericIPAddressField('IP', null=True, blank=True)
+    metadata = models.JSONField('Metadatos', default=dict, blank=True)
+    created_at = models.DateTimeField('Fecha', auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = 'bitacora'
+        verbose_name = 'Bitácora'
+        verbose_name_plural = 'Bitácora'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['-created_at']),
+            models.Index(fields=['user', '-created_at']),
+            models.Index(fields=['module', '-created_at']),
+            models.Index(fields=['action', '-created_at']),
+        ]
+
+    def __str__(self) -> str:
+        actor = self.user_email or 'sistema'
+        return f"{actor} · {self.action} · {self.module} · {self.created_at}"

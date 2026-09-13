@@ -2,14 +2,17 @@
 from __future__ import annotations
 
 import csv
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import StringIO
 
 from django.db.models import Count, F, QuerySet, Sum
+from django.db.models.functions import TruncDate
+from django.utils import timezone
 
+from catalog.models import Product
 from inventory.models import BranchStock
-from orders.models import Order, OrderItem, OrderStatus
+from orders.models import Order, OrderChannel, OrderItem, OrderStatus
 from reports.models import ReportRequest, ReportStatus
 from reports.prompt_interpreter import InterpretedReportSpec, ProductRanking, interpret_prompt
 from reservations.models import Reservation, ReservationStatus
@@ -125,6 +128,191 @@ def build_report_summary(*, branch_id: int | None, date_from: str | None, date_t
         'conversion_rate': conversion_rate,
         'low_stock_count': low_stock_count,
         'top_products': top_products,
+    }
+
+
+ALLOWED_DASHBOARD_DAYS = frozenset({7, 14, 30, 90})
+CHANNEL_LABELS = dict(OrderChannel.CHOICES)
+RESERVATION_STATUS_LABELS = dict(ReservationStatus.CHOICES)
+
+
+def clamp_dashboard_days(raw: str | int | None) -> int:
+    """Accept only 7/14/30/90; default 30."""
+    try:
+        days = int(raw or 30)
+    except (TypeError, ValueError):
+        return 30
+    return days if days in ALLOWED_DASHBOARD_DAYS else 30
+
+
+def _pct_delta(current: Decimal | int | float, previous: Decimal | int | float) -> float:
+    curr = float(current)
+    prev = float(previous)
+    if prev == 0:
+        return 100.0 if curr > 0 else 0.0
+    return round((curr - prev) / prev * 100, 1)
+
+
+def _as_date(value: date | datetime | None) -> date | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return timezone.localtime(value).date() if timezone.is_aware(value) else value.date()
+    return value
+
+
+def _period_snapshot(
+    *,
+    orders: QuerySet[Order],
+    reservations: QuerySet[Reservation],
+) -> dict:
+    total_sales = orders.aggregate(total=Sum('grand_total'))['total'] or Decimal('0')
+    reservation_count = reservations.count()
+    completed = reservations.filter(status=ReservationStatus.COMPLETED).count()
+    return {
+        'total_sales': total_sales,
+        'order_count': orders.count(),
+        'reservation_count': reservation_count,
+        'conversion_rate': (
+            round(completed / reservation_count * 100, 1) if reservation_count else 0.0
+        ),
+    }
+
+
+def _sales_by_day(orders: QuerySet[Order], start: date, end: date) -> list[dict]:
+    rows: dict[date, dict] = {}
+    for row in (
+        orders.annotate(day=TruncDate('paid_at'))
+        .values('day')
+        .annotate(total=Sum('grand_total'), count=Count('id'))
+    ):
+        day = _as_date(row['day'])
+        if day is not None:
+            rows[day] = row
+
+    series: list[dict] = []
+    cursor = start
+    while cursor <= end:
+        row = rows.get(cursor)
+        series.append({
+            'date': cursor.isoformat(),
+            'total': str(row['total'] if row else Decimal('0')),
+            'count': row['count'] if row else 0,
+        })
+        cursor += timedelta(days=1)
+    return series
+
+
+def build_dashboard(*, branch_id: int | None, days: int) -> dict:
+    """Operational stats for the admin home: KPIs, series and breakdowns."""
+    end = timezone.localdate()
+    start = end - timedelta(days=days - 1)
+    prev_end = start - timedelta(days=1)
+    prev_start = prev_end - timedelta(days=days - 1)
+
+    current_orders = _orders_queryset(branch_id=branch_id, date_from=start, date_to=end)
+    previous_orders = _orders_queryset(branch_id=branch_id, date_from=prev_start, date_to=prev_end)
+    current_reservations = _reservations_queryset(branch_id=branch_id, date_from=start, date_to=end)
+    previous_reservations = _reservations_queryset(
+        branch_id=branch_id, date_from=prev_start, date_to=prev_end,
+    )
+
+    now = _period_snapshot(orders=current_orders, reservations=current_reservations)
+    previous = _period_snapshot(orders=previous_orders, reservations=previous_reservations)
+    inventory = _fetch_inventory_totals(branch_id=branch_id)
+
+    stock_qs = BranchStock.objects.all()
+    if branch_id:
+        stock_qs = stock_qs.filter(branch_id=branch_id)
+    low_stock_count = stock_qs.filter(on_hand__lte=F('min_threshold')).count()
+
+    channel_rows = (
+        current_orders.values('channel')
+        .annotate(total=Sum('grand_total'), count=Count('id'))
+        .order_by('-total')
+    )
+    branch_rows = (
+        current_orders.values('branch_id', 'branch__name')
+        .annotate(total=Sum('grand_total'), count=Count('id'))
+        .order_by('-total')
+    )
+    reservation_status_rows = (
+        current_reservations.values('status')
+        .annotate(count=Count('id'))
+        .order_by('-count')
+    )
+
+    recent_orders = [
+        {
+            'id': order.id,
+            'code': order.code,
+            'branch_name': order.branch.name,
+            'channel': order.channel,
+            'channel_display': CHANNEL_LABELS.get(order.channel, order.channel),
+            'status': order.status,
+            'grand_total': str(order.grand_total),
+            'paid_at': order.paid_at.isoformat() if order.paid_at else '',
+        }
+        for order in current_orders.select_related('branch').order_by('-paid_at')[:8]
+    ]
+
+    return {
+        'period': {
+            'days': days,
+            'from': start.isoformat(),
+            'to': end.isoformat(),
+            'label': f'Últimos {days} días',
+        },
+        'kpis': {
+            'total_sales': str(now['total_sales']),
+            'total_sales_delta': _pct_delta(now['total_sales'], previous['total_sales']),
+            'order_count': now['order_count'],
+            'order_count_delta': _pct_delta(now['order_count'], previous['order_count']),
+            'reservation_count': now['reservation_count'],
+            'reservation_count_delta': _pct_delta(
+                now['reservation_count'], previous['reservation_count'],
+            ),
+            'conversion_rate': now['conversion_rate'],
+            'conversion_rate_delta': _pct_delta(
+                now['conversion_rate'], previous['conversion_rate'],
+            ),
+            'low_stock_count': low_stock_count,
+            'catalog_products': Product.objects.filter(is_active=True).count(),
+            'units_on_hand': inventory['units_on_hand'],
+            'units_reserved': inventory['units_reserved'],
+        },
+        'sales_by_day': _sales_by_day(current_orders, start, end),
+        'sales_by_channel': [
+            {
+                'channel': row['channel'],
+                'label': CHANNEL_LABELS.get(row['channel'], row['channel']),
+                'total': str(row['total'] or Decimal('0')),
+                'count': row['count'],
+            }
+            for row in channel_rows
+        ],
+        'sales_by_branch': [
+            {
+                'branch_id': row['branch_id'],
+                'branch_name': row['branch__name'],
+                'total': str(row['total'] or Decimal('0')),
+                'count': row['count'],
+            }
+            for row in branch_rows
+        ],
+        'reservations_by_status': [
+            {
+                'status': row['status'],
+                'label': RESERVATION_STATUS_LABELS.get(row['status'], row['status']),
+                'count': row['count'],
+            }
+            for row in reservation_status_rows
+        ],
+        'top_products': _fetch_ranked_products(
+            orders=current_orders, limit=6, ranking='best',
+        ),
+        'low_stock_items': _fetch_low_stock(branch_id=branch_id, limit=8),
+        'recent_orders': recent_orders,
     }
 
 
