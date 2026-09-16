@@ -182,3 +182,132 @@ def get_daily_pos_summary(*, branch, cashier, day: date | None = None, scope: st
         'currency': 'BOB',
         'by_payment_method': by_method,
     }
+
+
+def customer_to_pos_dict(*, profile) -> dict:
+    """Serialize a customer for POS search / selection."""
+    user = profile.user
+    return {
+        'id': user.id,
+        'first_name': user.first_name,
+        'last_name': user.last_name,
+        'full_name': user.get_full_name(),
+        'email': profile.receipt_email,
+        'phone': user.phone or '',
+        'document_type': profile.document_type or '',
+        'document_number': profile.document_number or '',
+        'document_label': profile.document_label,
+    }
+
+
+def search_pos_customers(*, query: str, limit: int = 20) -> list[dict]:
+    """Search customers by name, email, phone or document number."""
+    from accounts.models import CustomerProfile, Role
+
+    text = query.strip()
+    if not text:
+        return []
+
+    qs = (
+        CustomerProfile.objects.select_related('user')
+        .filter(user__role=Role.CUSTOMER, user__is_active=True)
+        .filter(
+            Q(user__first_name__icontains=text)
+            | Q(user__last_name__icontains=text)
+            | Q(user__email__icontains=text)
+            | Q(user__phone__icontains=text)
+            | Q(document_number__icontains=text),
+        )
+        .order_by('user__last_name', 'user__first_name')[:limit]
+    )
+    return [customer_to_pos_dict(profile=p) for p in qs]
+
+
+def create_pos_walk_in_customer(
+    *,
+    first_name: str,
+    last_name: str,
+    document_type: str,
+    document_number: str,
+    email: str | None = None,
+    phone: str | None = None,
+):
+    """
+    Quick-create a customer from the POS register (walk-in with CI/NIT).
+
+    Uses a synthetic @pos.local email when none is provided so the account
+    is unique without forcing the cashier to invent an email.
+    """
+    import secrets
+
+    from accounts.models import CustomerProfile, DocumentType, Role, User
+
+    doc_type = (document_type or '').strip().upper()
+    doc_number = (document_number or '').strip()
+    if doc_type not in {c for c, _ in DocumentType.CHOICES}:
+        raise BusinessError(
+            code='INVALID_DOCUMENT_TYPE',
+            message='Tipo de documento inválido',
+            status_code=400,
+        )
+    if not doc_number:
+        raise BusinessError(
+            code='DOCUMENT_REQUIRED',
+            message='El número de documento es obligatorio',
+            status_code=400,
+        )
+
+    existing = (
+        CustomerProfile.objects.select_related('user')
+        .filter(document_type=doc_type, document_number__iexact=doc_number)
+        .first()
+    )
+    if existing is not None:
+        # Update name/phone if the same document returns to the counter.
+        user = existing.user
+        changed = False
+        if first_name and user.first_name != first_name:
+            user.first_name = first_name
+            changed = True
+        if last_name and user.last_name != last_name:
+            user.last_name = last_name
+            changed = True
+        if phone and user.phone != phone:
+            user.phone = phone
+            changed = True
+        if changed:
+            user.save(update_fields=['first_name', 'last_name', 'phone', 'updated_at'])
+        return existing
+
+    clean_email = (email or '').strip().lower()
+    if clean_email:
+        if User.objects.filter(email__iexact=clean_email).exists():
+            raise BusinessError(
+                code='EMAIL_TAKEN',
+                message='Ya existe un usuario con ese correo',
+                status_code=400,
+            )
+    else:
+        slug = ''.join(ch for ch in doc_number.lower() if ch.isalnum()) or 'cliente'
+        clean_email = f'pos+{doc_type.lower()}.{slug}@pos.local'
+        # Collision guard for repeated synthetic emails
+        if User.objects.filter(email__iexact=clean_email).exists():
+            clean_email = f'pos+{doc_type.lower()}.{slug}.{User.objects.count()}@pos.local'
+
+    user = User.objects.create_user(
+        email=clean_email,
+        password=secrets.token_urlsafe(24),
+        first_name=first_name.strip(),
+        last_name=last_name.strip(),
+        phone=(phone or '').strip() or None,
+        role=Role.CUSTOMER,
+    )
+    user.set_unusable_password()
+    user.save(update_fields=['password'])
+
+    profile = CustomerProfile.objects.create(
+        user=user,
+        document_type=doc_type,
+        document_number=doc_number,
+    )
+    return profile

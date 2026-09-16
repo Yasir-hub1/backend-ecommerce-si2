@@ -24,17 +24,21 @@ from orders.receipts import (
 from orders.services import PAID_ORDER_STATUSES, create_pos_sale
 from payments.services import validate_pos_payment
 from pos.serializers import (
+    POSCustomerCreateSerializer,
     POSPaymentPreviewSerializer,
     POSPaymentSerializer,
     POSQuoteSerializer,
     POSSaleSerializer,
 )
 from pos.services import (
+    create_pos_walk_in_customer,
+    customer_to_pos_dict,
     get_cashier_branch,
     get_daily_pos_summary,
     lookup_variant_by_barcode,
     quote_pos_sale,
     search_pos_catalog,
+    search_pos_customers,
 )
 from reservations.models import Reservation
 from reservations.serializers import ReservationDetailSerializer
@@ -204,7 +208,7 @@ class POSSaleView(POSBranchMixin, POSPermissionMixin, generics.CreateAPIView):
         order = Order.objects.prefetch_related(
             Prefetch('items', queryset=OrderItem.objects.select_related('variant__product')),
             'payments',
-        ).get(pk=order.pk)
+        ).select_related('customer__user').get(pk=order.pk)
 
         receipt = get_or_create_order_receipt(order=order)
         pdf_url = request.build_absolute_uri(
@@ -216,6 +220,10 @@ class POSSaleView(POSBranchMixin, POSPermissionMixin, generics.CreateAPIView):
             for payment in order.payments.all()
             if payment.change_amount
         )
+
+        customer_payload = None
+        if order.customer_id:
+            customer_payload = customer_to_pos_dict(profile=order.customer)
 
         return Response(
             {
@@ -230,6 +238,7 @@ class POSSaleView(POSBranchMixin, POSPermissionMixin, generics.CreateAPIView):
                     'currency': order.currency,
                     'paid_at': order.paid_at,
                     'reservation_id': order.reservation_id,
+                    'customer': customer_payload,
                     'items': [
                         {
                             'id': line.id,
@@ -251,6 +260,50 @@ class POSSaleView(POSBranchMixin, POSPermissionMixin, generics.CreateAPIView):
                 },
                 'total_change': str(total_change),
             },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class POSCustomerSearchView(POSPermissionMixin, generics.GenericAPIView):
+    """Search customers by name, email, phone or CI/NIT for POS checkout."""
+
+    def get(self, request):
+        query = request.query_params.get('q', '').strip()
+        if len(query) < 2:
+            return Response(
+                {'detail': 'Indica al menos 2 caracteres para buscar.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        limit = min(int(request.query_params.get('limit', 20)), 50)
+        results = search_pos_customers(query=query, limit=limit)
+        return Response({'count': len(results), 'results': results})
+
+
+class POSCustomerCreateView(POSPermissionMixin, generics.GenericAPIView):
+    """Quick-create walk-in customer (name + CI/NIT) from the register."""
+
+    serializer_class = POSCustomerCreateSerializer
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            profile = create_pos_walk_in_customer(
+                first_name=data['first_name'],
+                last_name=data['last_name'],
+                document_type=data['document_type'],
+                document_number=data['document_number'],
+                email=data.get('email') or None,
+                phone=data.get('phone') or None,
+            )
+        except BusinessError as err:
+            return Response(
+                {'code': err.code, 'message': err.message, 'details': err.details},
+                status=err.status_code,
+            )
+        return Response(
+            customer_to_pos_dict(profile=profile),
             status=status.HTTP_201_CREATED,
         )
 

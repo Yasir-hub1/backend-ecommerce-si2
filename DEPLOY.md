@@ -1,12 +1,18 @@
 # Deploy — FashionStore Backend
 
-Guía de despliegue del API Django en un VPS Linux (sin Docker), apuntando a:
+Guía de despliegue del API Django en un VPS Linux (sin Docker), como **root**, apuntando a:
 
 **https://ws.ecommercefashion.shop**
 
+Ruta del proyecto en el servidor:
+
+```
+/var/www/ecommercefashion/backend
+```
+
 Stack: Python 3.12 · Django 5.1 · Gunicorn · Nginx · PostgreSQL **17** (+ `pg_trgm`, `pgvector`) · Redis · Celery.
 
-Requisitos del VPS (mínimo): Ubuntu 24.04 LTS, 2 vCPU, 4 GB RAM, 40 GB SSD.
+VPS de referencia: Ubuntu 24.04, 1 vCPU, 2 GB RAM (ajusta workers de Gunicorn/Celery si subes recursos).
 
 ---
 
@@ -22,17 +28,19 @@ Internet ── HTTPS ──▶ Nginx (443)  ws.ecommercefashion.shop
                         PostgreSQL 17 · Redis · Celery worker · Celery beat
 ```
 
-DNS: crea un registro **A** (o AAAA) de `ws.ecommercefashion.shop` → IP pública del VPS.
+DNS: registro **A** de `ws.ecommercefashion.shop` → IP pública del VPS.
+
+Todo se ejecuta como **root** (usuario del sistema `root`). No se crea un usuario de aplicación aparte.
 
 ---
 
 ## 1. Preparación del servidor
 
 ```bash
-sudo apt update && sudo apt upgrade -y
-sudo timedatectl set-timezone America/La_Paz
+apt update && apt upgrade -y
+timedatectl set-timezone America/La_Paz
 
-sudo apt install -y \
+apt install -y \
   curl ca-certificates gnupg lsb-release \
   python3.12 python3.12-venv python3-pip \
   redis-server nginx git build-essential \
@@ -44,11 +52,11 @@ sudo apt install -y \
 Firewall (solo SSH + HTTP/HTTPS):
 
 ```bash
-sudo ufw allow OpenSSH
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw enable
-sudo ufw status
+ufw allow OpenSSH
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw enable
+ufw status
 ```
 
 ---
@@ -60,65 +68,73 @@ Ubuntu 24.04 trae PostgreSQL 16 por defecto. Para la **17** usa el repositorio o
 ### 2.1 Repositorio PGDG
 
 ```bash
-sudo apt install -y curl ca-certificates
-sudo install -d /usr/share/postgresql-common/pgdg
-sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+apt install -y curl ca-certificates
+install -d /usr/share/postgresql-common/pgdg
+curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
   --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
 
-sudo sh -c 'echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+sh -c 'echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
   https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
   > /etc/apt/sources.list.d/pgdg.list'
 
-sudo apt update
+apt update
 ```
 
 ### 2.2 Instalar servidor y extensiones
 
 ```bash
-sudo apt install -y \
+apt install -y \
   postgresql-17 \
   postgresql-client-17 \
   postgresql-contrib-17 \
   postgresql-17-pgvector
 
-sudo systemctl enable --now postgresql
+systemctl enable --now postgresql
 psql --version   # debe mostrar 17.x
 ```
 
-### 2.3 Base de datos y usuario de aplicación
+### 2.3 Usuario `postgres` (el por defecto) + base de datos
+
+Solo se usa el rol **`postgres`**. Cambia su contraseña y crea la base:
 
 ```bash
 sudo -u postgres psql
 ```
 
 ```sql
-CREATE USER fashion_app WITH PASSWORD 'CAMBIA_ESTA_CLAVE_FUERTE';
-CREATE DATABASE fashionstore OWNER fashion_app;
+ALTER USER postgres WITH PASSWORD '12345678';
+CREATE DATABASE fashionstore OWNER postgres;
 \c fashionstore
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS vector;
-GRANT ALL ON SCHEMA public TO fashion_app;
 \q
 ```
 
-### 2.4 Escuchar solo en localhost
+### 2.4 Escuchar en localhost + auth por contraseña (TCP)
 
-Edita `/etc/postgresql/17/main/postgresql.conf` y confirma:
+Edita `/etc/postgresql/17/main/postgresql.conf`:
 
 ```conf
 listen_addresses = 'localhost'
 ```
 
-En `/etc/postgresql/17/main/pg_hba.conf` deja auth local por `scram-sha-256` (o `peer` para el usuario del sistema `postgres`). Reinicia:
+En `/etc/postgresql/17/main/pg_hba.conf`, asegúrate de tener auth por contraseña para conexiones locales TCP (Django usa `127.0.0.1`):
 
-```bash
-sudo systemctl restart postgresql
+```conf
+# TYPE  DATABASE        USER            ADDRESS                 METHOD
+local   all             postgres                                peer
+host    all             postgres        127.0.0.1/32            scram-sha-256
+host    all             postgres        ::1/128                 scram-sha-256
 ```
 
-Prueba:
+```bash
+systemctl restart postgresql
+```
+
+Prueba (te pedirá la contraseña de `postgres`):
 
 ```bash
-psql -h 127.0.0.1 -U fashion_app -d fashionstore -c '\dx'
+psql -h 127.0.0.1 -U postgres -d fashionstore -c '\dx'
 # Debe listar pg_trgm y vector
 ```
 
@@ -127,33 +143,33 @@ psql -h 127.0.0.1 -U fashion_app -d fashionstore -c '\dx'
 ## 3. Redis
 
 ```bash
-sudo systemctl enable --now redis-server
+systemctl enable --now redis-server
 redis-cli ping   # PONG
 ```
 
-Deja Redis escuchando en `127.0.0.1:6379` (default). No abras el puerto al exterior.
+Redis solo en `127.0.0.1:6379`. No abras el puerto al exterior.
 
 ---
 
 ## 4. Código y entorno Python
 
+El código vive en `/var/www/ecommercefashion/backend` (ya como root):
+
 ```bash
-sudo adduser --system --group --home /srv/fashionstore fashion
-sudo mkdir -p /srv/fashionstore
-sudo chown fashion:fashion /srv/fashionstore
+cd /var/www/ecommercefashion/backend
 
-# Clona el repo (ajusta la URL)
-sudo -u fashion git clone <URL_DEL_REPO_BACKEND> /srv/fashionstore/backend
-# Si el backend vive dentro de un monorepo, apunta al subdirectorio correcto.
-cd /srv/fashionstore/backend
+# Si aún no está el código:
+# mkdir -p /var/www/ecommercefashion
+# git clone <URL_DEL_REPO> /var/www/ecommercefashion
+# (o sube el backend a /var/www/ecommercefashion/backend)
 
-sudo -u fashion python3.12 -m venv .venv
-sudo -u fashion .venv/bin/pip install --upgrade pip
-sudo -u fashion .venv/bin/pip install -r requirements/prod.txt
-# Pipeline AR (rembg / YOLO-pose). Opcional si no usas cutout en este VPS:
-sudo -u fashion .venv/bin/pip install -r requirements/ar.txt
+python3.12 -m venv .venv
+.venv/bin/pip install --upgrade pip
+.venv/bin/pip install -r requirements/prod.txt
+# Pipeline AR (rembg / YOLO-pose):
+.venv/bin/pip install -r requirements/ar.txt
 
-sudo -u fashion mkdir -p logs media staticfiles
+mkdir -p logs media staticfiles
 ```
 
 ---
@@ -161,12 +177,12 @@ sudo -u fashion mkdir -p logs media staticfiles
 ## 5. Variables de entorno (`.env`)
 
 ```bash
-sudo -u fashion cp .env.example .env
-sudo chmod 600 /srv/fashionstore/backend/.env
-sudo chown fashion:fashion /srv/fashionstore/backend/.env
+cd /var/www/ecommercefashion/backend
+cp .env.example .env
+chmod 600 .env
 ```
 
-Contenido sugerido para producción (`/srv/fashionstore/backend/.env`):
+Contenido sugerido (`/var/www/ecommercefashion/backend/.env`):
 
 ```env
 # Django
@@ -181,9 +197,9 @@ CSRF_TRUSTED_ORIGINS=https://ws.ecommercefashion.shop
 CORS_ALLOWED_ORIGINS=https://ws.ecommercefashion.shop
 FRONTEND_URL=https://ws.ecommercefashion.shop
 
-# PostgreSQL 17
+# PostgreSQL 17 — usuario por defecto
 DB_NAME=fashionstore
-DB_USER=fashion_app
+DB_USER=postgres
 DB_PASSWORD=CAMBIA_ESTA_CLAVE_FUERTE
 DB_HOST=127.0.0.1
 DB_PORT=5432
@@ -219,8 +235,6 @@ python3 -c 'import secrets; print(secrets.token_urlsafe(64))'
 
 ### Ajustes recomendados en `config/settings/prod.py`
 
-Asegúrate de tener (además de lo ya existente):
-
 ```python
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[])
@@ -233,30 +247,23 @@ Sin `SECURE_PROXY_SSL_HEADER`, con Nginx delante, `SECURE_SSL_REDIRECT` puede pr
 ## 6. Migraciones y estáticos
 
 ```bash
-cd /srv/fashionstore/backend
+cd /var/www/ecommercefashion/backend
 export DJANGO_SETTINGS_MODULE=config.settings.prod
 
-sudo -u fashion env DJANGO_SETTINGS_MODULE=config.settings.prod \
-  .venv/bin/python manage.py migrate
-
-sudo -u fashion env DJANGO_SETTINGS_MODULE=config.settings.prod \
-  .venv/bin/python manage.py collectstatic --noinput
-
-sudo -u fashion env DJANGO_SETTINGS_MODULE=config.settings.prod \
-  .venv/bin/python manage.py createsuperuser
+.venv/bin/python manage.py migrate
+.venv/bin/python manage.py collectstatic --noinput
+.venv/bin/python manage.py createsuperuser
 
 # Datos demo (opcional)
-sudo -u fashion env DJANGO_SETTINGS_MODULE=config.settings.prod \
-  .venv/bin/python manage.py seed_demo
+.venv/bin/python manage.py seed_demo
 
 # Chequeo de despliegue
-sudo -u fashion env DJANGO_SETTINGS_MODULE=config.settings.prod \
-  .venv/bin/python manage.py check --deploy
+.venv/bin/python manage.py check --deploy
 ```
 
 ---
 
-## 7. systemd — Gunicorn + Celery
+## 7. systemd — Gunicorn + Celery (como root)
 
 ### 7.1 API — `/etc/systemd/system/fashionstore.service`
 
@@ -267,14 +274,14 @@ After=network.target postgresql.service redis-server.service
 Requires=postgresql.service redis-server.service
 
 [Service]
-User=fashion
-Group=fashion
-WorkingDirectory=/srv/fashionstore/backend
-EnvironmentFile=/srv/fashionstore/backend/.env
+User=root
+Group=root
+WorkingDirectory=/var/www/ecommercefashion/backend
+EnvironmentFile=/var/www/ecommercefashion/backend/.env
 Environment=DJANGO_SETTINGS_MODULE=config.settings.prod
 RuntimeDirectory=fashionstore
-ExecStart=/srv/fashionstore/backend/.venv/bin/gunicorn config.wsgi:application \
-  --workers 3 \
+ExecStart=/var/www/ecommercefashion/backend/.venv/bin/gunicorn config.wsgi:application \
+  --workers 2 \
   --bind unix:/run/fashionstore/gunicorn.sock \
   --timeout 120 \
   --access-logfile - \
@@ -294,12 +301,12 @@ Description=FashionStore Celery Worker
 After=network.target redis-server.service postgresql.service
 
 [Service]
-User=fashion
-Group=fashion
-WorkingDirectory=/srv/fashionstore/backend
-EnvironmentFile=/srv/fashionstore/backend/.env
+User=root
+Group=root
+WorkingDirectory=/var/www/ecommercefashion/backend
+EnvironmentFile=/var/www/ecommercefashion/backend/.env
 Environment=DJANGO_SETTINGS_MODULE=config.settings.prod
-ExecStart=/srv/fashionstore/backend/.venv/bin/celery -A config worker -l info --concurrency=2
+ExecStart=/var/www/ecommercefashion/backend/.venv/bin/celery -A config worker -l info --concurrency=1
 Restart=always
 RestartSec=5
 
@@ -315,12 +322,12 @@ Description=FashionStore Celery Beat
 After=network.target redis-server.service
 
 [Service]
-User=fashion
-Group=fashion
-WorkingDirectory=/srv/fashionstore/backend
-EnvironmentFile=/srv/fashionstore/backend/.env
+User=root
+Group=root
+WorkingDirectory=/var/www/ecommercefashion/backend
+EnvironmentFile=/var/www/ecommercefashion/backend/.env
 Environment=DJANGO_SETTINGS_MODULE=config.settings.prod
-ExecStart=/srv/fashionstore/backend/.venv/bin/celery -A config beat -l info
+ExecStart=/var/www/ecommercefashion/backend/.venv/bin/celery -A config beat -l info
 Restart=always
 RestartSec=5
 
@@ -331,9 +338,9 @@ WantedBy=multi-user.target
 Activar:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now fashionstore fashionstore-worker fashionstore-beat
-sudo systemctl status fashionstore fashionstore-worker fashionstore-beat
+systemctl daemon-reload
+systemctl enable --now fashionstore fashionstore-worker fashionstore-beat
+systemctl status fashionstore fashionstore-worker fashionstore-beat
 ```
 
 Logs:
@@ -368,22 +375,20 @@ server {
 ```
 
 ```bash
-sudo mkdir -p /var/www/certbot
-sudo ln -sf /etc/nginx/sites-available/fashionstore /etc/nginx/sites-enabled/
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo nginx -t && sudo systemctl reload nginx
+mkdir -p /var/www/certbot
+ln -sf /etc/nginx/sites-available/ws.fashionstore /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+nginx -t && systemctl reload nginx
 ```
 
 ### 8.2 Certificado
 
 ```bash
-sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d ws.ecommercefashion.shop
+apt install -y certbot python3-certbot-nginx
+certbot --nginx -d ws.ecommercefashion.shop
 ```
 
 ### 8.3 Configuración HTTPS final
-
-Reemplaza el archivo por:
 
 ```nginx
 upstream fashionstore_app {
@@ -409,7 +414,6 @@ server {
 
     client_max_body_size 20M;
 
-    # API
     location /api/ {
         proxy_pass http://fashionstore_app;
         proxy_set_header Host $host;
@@ -419,7 +423,6 @@ server {
         proxy_read_timeout 120s;
     }
 
-    # Admin Django
     location /admin/ {
         proxy_pass http://fashionstore_app;
         proxy_set_header Host $host;
@@ -428,7 +431,6 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # OpenAPI / schema (si se expone en prod)
     location /api/schema/ {
         proxy_pass http://fashionstore_app;
         proxy_set_header Host $host;
@@ -436,27 +438,27 @@ server {
     }
 
     location /static/ {
-        alias /srv/fashionstore/backend/staticfiles/;
+        alias /var/www/ecommercefashion/backend/staticfiles/;
         expires 30d;
         access_log off;
     }
 
     location /media/ {
-        alias /srv/fashionstore/backend/media/;
+        alias /var/www/ecommercefashion/backend/media/;
         expires 7d;
     }
 }
 ```
 
 ```bash
-sudo nginx -t && sudo systemctl reload nginx
+nginx -t && systemctl reload nginx
 ```
 
 ---
 
 ## 9. Stripe webhook
 
-En el dashboard de Stripe → Webhooks → endpoint:
+Endpoint en Stripe:
 
 ```
 https://ws.ecommercefashion.shop/api/v1/payments/webhook/stripe/
@@ -465,7 +467,7 @@ https://ws.ecommercefashion.shop/api/v1/payments/webhook/stripe/
 Copia el `whsec_...` a `STRIPE_WEBHOOK_SECRET` en `.env` y reinicia:
 
 ```bash
-sudo systemctl restart fashionstore
+systemctl restart fashionstore
 ```
 
 ---
@@ -476,8 +478,6 @@ sudo systemctl restart fashionstore
 curl -I https://ws.ecommercefashion.shop/api/v1/
 curl -I https://ws.ecommercefashion.shop/admin/
 ```
-
-Clientes:
 
 | Cliente | Base URL |
 |---------|----------|
@@ -490,56 +490,50 @@ Clientes:
 ## 11. Actualización (deploy recurrente)
 
 ```bash
-cd /srv/fashionstore/backend
-sudo -u fashion git pull
-sudo -u fashion .venv/bin/pip install -r requirements/prod.txt
-# si usas AR:
-# sudo -u fashion .venv/bin/pip install -r requirements/ar.txt
-sudo -u fashion env DJANGO_SETTINGS_MODULE=config.settings.prod \
-  .venv/bin/python manage.py migrate
-sudo -u fashion env DJANGO_SETTINGS_MODULE=config.settings.prod \
-  .venv/bin/python manage.py collectstatic --noinput
-sudo systemctl restart fashionstore fashionstore-worker fashionstore-beat
+cd /var/www/ecommercefashion/backend
+git pull
+.venv/bin/pip install -r requirements/prod.txt
+# .venv/bin/pip install -r requirements/ar.txt
+export DJANGO_SETTINGS_MODULE=config.settings.prod
+.venv/bin/python manage.py migrate
+.venv/bin/python manage.py collectstatic --noinput
+systemctl restart fashionstore fashionstore-worker fashionstore-beat
 ```
-
-Script opcional `deploy.sh` en el servidor con esos mismos pasos.
 
 ---
 
 ## 12. Respaldos
 
-Cron diario (como root):
-
 ```bash
-sudo mkdir -p /var/backups/fashionstore
-sudo crontab -e
+mkdir -p /var/backups/fashionstore
+crontab -e
 ```
 
 ```cron
-0 3 * * * pg_dump -h 127.0.0.1 -U fashion_app fashionstore | gzip > /var/backups/fashionstore/db-$(date +\%F).sql.gz
-0 3 * * * rsync -a /srv/fashionstore/backend/media/ /var/backups/fashionstore/media/
-# Rotación: borrar dumps > 7 días
+0 3 * * * PGPASSWORD='CAMBIA_ESTA_CLAVE_FUERTE' pg_dump -h 127.0.0.1 -U postgres fashionstore | gzip > /var/backups/fashionstore/db-$(date +\%F).sql.gz
+0 3 * * * rsync -a /var/www/ecommercefashion/backend/media/ /var/backups/fashionstore/media/
 0 4 * * * find /var/backups/fashionstore -name 'db-*.sql.gz' -mtime +7 -delete
 ```
 
-Guarda la contraseña de `fashion_app` en `~/.pgpass` del usuario que ejecuta el dump (`chmod 600`).
+Mejor: usa `~/.pgpass` (`chmod 600`) en lugar de poner la clave en el crontab.
 
 ---
 
 ## 13. Checklist rápido
 
 - [ ] DNS `ws.ecommercefashion.shop` → IP del VPS
-- [ ] PostgreSQL 17 + extensiones `pg_trgm` y `vector`
-- [ ] Redis activo solo en localhost
-- [ ] `.env` con `DEBUG=False`, `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`
-- [ ] `migrate` + `collectstatic` + superusuario
-- [ ] systemd: API, worker, beat
+- [ ] Código en `/var/www/ecommercefashion/backend`
+- [ ] PostgreSQL 17 + `pg_trgm` / `vector`
+- [ ] Usuario DB `postgres` con contraseña nueva
+- [ ] Redis solo en localhost
+- [ ] `.env` con `DB_USER=postgres`, `DEBUG=False`, hosts del dominio
+- [ ] `migrate` + `collectstatic` + superusuario Django
+- [ ] systemd como `root`: API, worker, beat
 - [ ] Nginx + Certbot HTTPS
 - [ ] `SECURE_PROXY_SSL_HEADER` en prod
-- [ ] Webhook Stripe apuntando al dominio
-- [ ] `manage.py check --deploy` sin warnings críticos
+- [ ] Webhook Stripe
 - [ ] Backup `pg_dump` + `media/`
 
 ---
 
-*Dominio de producción del API: `https://ws.ecommercefashion.shop`.*
+*Dominio: `https://ws.ecommercefashion.shop` · Path: `/var/www/ecommercefashion/backend` · DB user: `postgres`.*

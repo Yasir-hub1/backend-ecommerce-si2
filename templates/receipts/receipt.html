@@ -183,10 +183,24 @@
                 <span class="label">Cliente:</span>
                 {{ order.customer.user.get_full_name }}
             </div>
+            {% if order.customer.document_number %}
+            <div class="info-row">
+                <span class="label">{{ order.customer.document_label|default:"Documento" }}:</span>
+                {{ order.customer.document_number }}
+            </div>
+            {% endif %}
+            {% if order.customer.receipt_email %}
             <div class="info-row">
                 <span class="label">Email:</span>
-                {{ order.customer.user.email }}
+                {{ order.customer.receipt_email }}
             </div>
+            {% endif %}
+            {% if order.customer.user.phone %}
+            <div class="info-row">
+                <span class="label">Teléfono:</span>
+                {{ order.customer.user.phone }}
+            </div>
+            {% endif %}
             {% endif %}
             <div class="info-row">
                 <span class="label">Sucursal:</span>

@@ -234,6 +234,22 @@ class Gender:
     ]
 
 
+class DocumentType:
+    """Customer identity / tax document for receipts (Bolivia)."""
+
+    CI = 'CI'
+    NIT = 'NIT'
+    PASSPORT = 'PASSPORT'
+    OTHER = 'OTHER'
+
+    CHOICES = [
+        (CI, 'Cédula de identidad'),
+        (NIT, 'NIT'),
+        (PASSPORT, 'Pasaporte'),
+        (OTHER, 'Otro'),
+    ]
+
+
 class CustomerProfile(TimeStampedModel):
     """
     Extended profile for customers.
@@ -253,6 +269,23 @@ class CustomerProfile(TimeStampedModel):
         max_length=10,
         choices=Gender.CHOICES,
         default=Gender.UNISEX,
+    )
+
+    document_type = models.CharField(
+        'Tipo de documento',
+        max_length=10,
+        choices=DocumentType.CHOICES,
+        blank=True,
+        default='',
+        help_text='CI, NIT u otro documento fiscal para el comprobante',
+    )
+    document_number = models.CharField(
+        'Número de documento',
+        max_length=40,
+        blank=True,
+        default='',
+        db_index=True,
+        help_text='CI o NIT del cliente (aparece en el comprobante POS)',
     )
 
     # Size preferences for quick checkout
@@ -291,6 +324,21 @@ class CustomerProfile(TimeStampedModel):
 
     def __str__(self):
         return f"Perfil de {self.user.get_full_name()}"
+
+    @property
+    def document_label(self) -> str:
+        """Human label for receipt (e.g. NIT / CI)."""
+        if not self.document_type or not self.document_number:
+            return ''
+        return dict(DocumentType.CHOICES).get(self.document_type, self.document_type)
+
+    @property
+    def receipt_email(self) -> str:
+        """Hide synthetic POS walk-in emails from the printed receipt."""
+        email = (self.user.email or '').strip()
+        if email.endswith('@pos.local'):
+            return ''
+        return email
 
 
 class Position:

@@ -428,7 +428,7 @@ def create_pos_sale(
     if reservation_id:
         from reservations.models import Reservation, ReservationStatus
 
-        reservation = Reservation.objects.select_related('branch').get(pk=reservation_id)
+        reservation = Reservation.objects.select_related('branch', 'customer').get(pk=reservation_id)
 
         if reservation.branch_id != branch.id:
             raise BusinessError(
@@ -447,6 +447,9 @@ def create_pos_sale(
                 status_code=409,
                 details={'current_status': reservation.status},
             )
+
+        if customer is None and reservation.customer_id:
+            customer = reservation.customer
 
         reservation_items_map = {
             item.variant_id: item for item in reservation.items.select_related('variant')

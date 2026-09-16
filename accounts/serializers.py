@@ -9,6 +9,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from accounts.models import (
     Bitacora,
     CustomerProfile,
+    DocumentType,
     EmployeeProfile,
     Gender,
     Position,
@@ -47,6 +48,7 @@ class CustomerProfileSerializer(serializers.ModelSerializer):
     """Customer profile serializer."""
     user = UserSerializer(read_only=True)
     preferred_branch_name = serializers.CharField(source='preferred_branch.name', read_only=True)
+    document_label = serializers.CharField(read_only=True)
 
     class Meta:
         model = CustomerProfile
@@ -54,6 +56,9 @@ class CustomerProfileSerializer(serializers.ModelSerializer):
             'user',
             'birth_date',
             'gender_preference',
+            'document_type',
+            'document_number',
+            'document_label',
             'default_size_top',
             'default_size_bottom',
             'preferred_branch',
@@ -61,7 +66,7 @@ class CustomerProfileSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['user', 'created_at', 'updated_at']
+        read_only_fields = ['user', 'document_label', 'created_at', 'updated_at']
 
 
 class EmployeeProfileSerializer(serializers.ModelSerializer):
@@ -98,6 +103,12 @@ class CustomerRegistrationSerializer(serializers.Serializer):
     phone = serializers.CharField(max_length=20, required=False, allow_blank=True)
     birth_date = serializers.DateField(required=False, allow_null=True)
     gender_preference = serializers.ChoiceField(choices=Gender.CHOICES, required=False)
+    document_type = serializers.ChoiceField(
+        choices=DocumentType.CHOICES,
+        required=False,
+        allow_blank=True,
+    )
+    document_number = serializers.CharField(max_length=40, required=False, allow_blank=True)
 
     def validate_email(self, value):
         """Normalize and reject duplicates case-insensitively."""
@@ -141,6 +152,8 @@ class CustomerRegistrationSerializer(serializers.Serializer):
         # CharField is NOT NULL — omit the key so the model default applies.
         gender_preference = validated_data.pop('gender_preference', Gender.UNISEX)
         phone = validated_data.pop('phone', None) or None
+        document_type = (validated_data.pop('document_type', '') or '').strip().upper()
+        document_number = (validated_data.pop('document_number', '') or '').strip()
 
         # Create user
         user = User.objects.create_user(
@@ -157,6 +170,8 @@ class CustomerRegistrationSerializer(serializers.Serializer):
             user=user,
             birth_date=birth_date,
             gender_preference=gender_preference or Gender.UNISEX,
+            document_type=document_type,
+            document_number=document_number,
         )
 
         return user

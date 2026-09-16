@@ -77,6 +77,17 @@ class POSPaymentSerializer(serializers.ModelSerializer):
         ]
 
 
+class POSCustomerCreateSerializer(serializers.Serializer):
+    """Walk-in customer for POS receipt (name + CI/NIT)."""
+
+    first_name = serializers.CharField(max_length=80)
+    last_name = serializers.CharField(max_length=80)
+    document_type = serializers.ChoiceField(choices=['CI', 'NIT', 'PASSPORT', 'OTHER'])
+    document_number = serializers.CharField(max_length=40)
+    email = serializers.EmailField(required=False, allow_blank=True)
+    phone = serializers.CharField(max_length=20, required=False, allow_blank=True)
+
+
 class POSOrderItemSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     variant_id = serializers.IntegerField(source='variant.id')

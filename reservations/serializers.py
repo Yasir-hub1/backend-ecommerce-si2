@@ -60,8 +60,21 @@ class ReservationListSerializer(serializers.ModelSerializer):
 class ReservationDetailSerializer(serializers.ModelSerializer):
     """Detailed reservation serializer with all items."""
     items = ReservationItemSerializer(many=True, read_only=True)
+    customer_name = serializers.CharField(source='customer.user.get_full_name', read_only=True)
     customer_email = serializers.CharField(source='customer.user.email', read_only=True)
     customer_phone = serializers.CharField(source='customer.user.phone', read_only=True)
+    customer_document_type = serializers.CharField(
+        source='customer.document_type',
+        read_only=True,
+    )
+    customer_document_number = serializers.CharField(
+        source='customer.document_number',
+        read_only=True,
+    )
+    customer_document_label = serializers.CharField(
+        source='customer.document_label',
+        read_only=True,
+    )
     branch_name = serializers.CharField(source='branch.name', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     prepared_by_name = serializers.CharField(
@@ -76,8 +89,12 @@ class ReservationDetailSerializer(serializers.ModelSerializer):
             'id',
             'code',
             'customer',
+            'customer_name',
             'customer_email',
             'customer_phone',
+            'customer_document_type',
+            'customer_document_number',
+            'customer_document_label',
             'branch',
             'branch_name',
             'scheduled_for',
