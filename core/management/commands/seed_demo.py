@@ -1,5 +1,5 @@
 """
-Seed FashionStore with coherent demo data (~10 records per table).
+Seed VETA with coherent demo data (~10 records per table).
 
 Usage:
     python manage.py seed_demo
@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = 'Carga datos de demostración coherentes para FashionStore (~10 por tabla)'
+    help = 'Carga datos de demostración coherentes para VETA (~10 por tabla)'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -276,7 +276,7 @@ class Command(BaseCommand):
                 defaults={
                     'name': pname,
                     'description': (
-                        f'{pname} — polera demo FashionStore, '
+                        f'{pname} — polera demo VETA, '
                         'ideal para probador virtual AR.'
                     ),
                     'category': ctx['categories'][cat_idx],
@@ -347,7 +347,7 @@ class Command(BaseCommand):
 
     def _seed_users(self, ctx: dict) -> None:
         ctx['admin'] = self._create_user(
-            demo_email('admin'), Role.ADMIN, 'Admin', 'FashionStore', is_staff=True,
+            demo_email('admin'), Role.ADMIN, 'Admin', 'VETA', is_staff=True,
         )
         ctx['managers'] = []
         ctx['cashiers'] = []
@@ -631,7 +631,7 @@ class Command(BaseCommand):
                 ][i % 3],
                 title=f'Notificación demo {i + 1}',
                 defaults={
-                    'message': 'Mensaje de demostración FashionStore.',
+                    'message': 'Mensaje de demostración VETA.',
                     'reference_type': 'demo',
                     'reference_id': i + 1,
                 },

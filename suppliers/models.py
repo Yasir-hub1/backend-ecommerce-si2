@@ -1,5 +1,5 @@
 """
-Supplier and procurement models for FashionStore.
+Supplier and procurement models for VETA.
 """
 from django.db import models
 from django.core.validators import MinValueValidator

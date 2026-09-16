@@ -1,5 +1,5 @@
 """
-Supplier services for FashionStore.
+Supplier services for VETA.
 
 Handles purchase receipt confirmation and inventory intake.
 """

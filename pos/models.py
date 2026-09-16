@@ -1,5 +1,5 @@
 """
-Point of Sale models for FashionStore.
+Point of Sale models for VETA.
 
 POS sales use the Order model with channel=POS.
 This module only contains POS-specific utilities if needed.

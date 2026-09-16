@@ -1,5 +1,5 @@
 """
-Catalog models for FashionStore.
+Catalog models for VETA.
 
 Implements the product catalog with:
 - Categories (hierarchical)

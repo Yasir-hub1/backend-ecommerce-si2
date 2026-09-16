@@ -1,6 +1,6 @@
-# Tecnologías del Backend — FashionStore
+# Tecnologías del Backend — VETA
 
-Stack tecnológico usado en el backend de la plataforma e-commerce multi-sucursal FashionStore (examen SI2).
+Stack tecnológico usado en el backend de la plataforma e-commerce multi-sucursal VETA (examen SI2).
 
 ---
 
@@ -211,4 +211,4 @@ Fuente: `requirements/base.txt`, `ar.txt`, `dev.txt`, `prod.txt`.
 
 ---
 
-*Documento generado para el backend FashionStore (SI2). Actualizar si se agregan dependencias nuevas a `requirements/`.*
+*Documento generado para el backend VETA (SI2). Actualizar si se agregan dependencias nuevas a `requirements/`.*

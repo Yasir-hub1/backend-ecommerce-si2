@@ -1,5 +1,5 @@
 """
-Order services for FashionStore.
+Order services for VETA.
 
 Handles cart checkout, order payment, and refunds.
 """

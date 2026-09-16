@@ -1,5 +1,5 @@
 """
-Core models and base classes for FashionStore.
+Core models and base classes for VETA.
 """
 import random
 import string

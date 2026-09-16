@@ -1,5 +1,5 @@
 """
-URL configuration for FashionStore project.
+URL configuration for VETA project.
 """
 from django.contrib import admin
 from django.urls import path, include

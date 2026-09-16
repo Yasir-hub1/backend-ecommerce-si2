@@ -1,5 +1,5 @@
 """
-Geographic and branch models for FashionStore.
+Geographic and branch models for VETA.
 """
 from django.db import models
 from django.core.validators import MinValueValidator

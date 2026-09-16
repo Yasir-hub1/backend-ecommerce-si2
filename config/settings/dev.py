@@ -1,5 +1,5 @@
 """
-Development settings for FashionStore project.
+Development settings for VETA project.
 """
 from .base import *
 

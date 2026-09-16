@@ -236,7 +236,7 @@ Si vas por Quick Look en iOS necesitas **USDZ, no GLB**. La conversión se hace 
     "scheme": "fashionstore",
     "plugins": [
       ["react-native-vision-camera", {
-        "cameraPermissionText": "FashionStore usa la cámara para el probador virtual.",
+        "cameraPermissionText": "VETA usa la cámara para el probador virtual.",
         "enableFrameProcessors": true
       }]
     ],

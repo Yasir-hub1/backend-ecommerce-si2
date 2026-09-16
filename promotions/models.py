@@ -1,5 +1,5 @@
 """
-Promotions and discounts models for FashionStore.
+Promotions and discounts models for VETA.
 """
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator

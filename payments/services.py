@@ -1,5 +1,5 @@
 """
-Payment services for FashionStore.
+Payment services for VETA.
 
 Handles Stripe Checkout Sessions, webhook processing, refunds, and receipt generation.
 """
@@ -49,7 +49,7 @@ def _build_checkout_line_items(order: Order) -> list:
                 'unit_amount': amount_cents,
                 'product_data': {
                     'name': f'Orden {order.code}',
-                    'description': f'FashionStore · {order.branch.name}',
+                    'description': f'VETA · {order.branch.name}',
                 },
             },
             'quantity': 1,
@@ -722,7 +722,7 @@ def generate_receipt(
         ),
         'generated_at': timezone.now(),
         'company': {
-            'name': 'FashionStore',
+            'name': 'VETA',
             'nit': '123456789',
             'address': 'Dirección principal',
             'phone': '+591 1234567',

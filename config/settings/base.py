@@ -1,5 +1,5 @@
 """
-Base settings for FashionStore project.
+Base settings for VETA project.
 """
 from pathlib import Path
 from datetime import timedelta
@@ -188,7 +188,7 @@ CORS_ALLOW_CREDENTIALS = True
 
 # Spectacular (OpenAPI)
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'FashionStore API',
+    'TITLE': 'VETA API',
     'DESCRIPTION': 'API para plataforma de e-commerce multi-sucursal con probador virtual',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,

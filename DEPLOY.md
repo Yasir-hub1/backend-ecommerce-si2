@@ -1,4 +1,4 @@
-# Deploy — FashionStore Backend
+# Deploy — VETA Backend
 
 Guía de despliegue del API Django en un VPS Linux (sin Docker), apuntando a:
 
@@ -262,7 +262,7 @@ sudo -u fashion env DJANGO_SETTINGS_MODULE=config.settings.prod \
 
 ```ini
 [Unit]
-Description=FashionStore API (Gunicorn)
+Description=VETA API (Gunicorn)
 After=network.target postgresql.service redis-server.service
 Requires=postgresql.service redis-server.service
 
@@ -290,7 +290,7 @@ WantedBy=multi-user.target
 
 ```ini
 [Unit]
-Description=FashionStore Celery Worker
+Description=VETA Celery Worker
 After=network.target redis-server.service postgresql.service
 
 [Service]
@@ -311,7 +311,7 @@ WantedBy=multi-user.target
 
 ```ini
 [Unit]
-Description=FashionStore Celery Beat
+Description=VETA Celery Beat
 After=network.target redis-server.service
 
 [Service]

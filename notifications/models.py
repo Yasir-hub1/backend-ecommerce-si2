@@ -1,5 +1,5 @@
 """
-Notification models for FashionStore.
+Notification models for VETA.
 """
 from django.db import models
 from core.models import TimeStampedModel

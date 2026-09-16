@@ -1,4 +1,4 @@
-"""Demo seed helpers for FashionStore."""
+"""Demo seed helpers for VETA."""
 from __future__ import annotations
 
 import random
@@ -28,16 +28,16 @@ CITIES = [
 ]
 
 BRANCHES = [
-    ('SCZ-01', 'FashionStore Equipetrol', 0, 'Av. San Martín 1234'),
-    ('SCZ-02', 'FashionStore Las Brisas', 0, 'Av. Cristo Redentor 456'),
-    ('LPZ-01', 'FashionStore Sopocachi', 1, 'Calle 6 de Agosto 789'),
-    ('LPZ-02', 'FashionStore Zona Sur', 1, 'Av. Ballivián 321'),
-    ('ALT-01', 'FashionStore El Alto Centro', 2, 'Av. Juan Pablo II 100'),
-    ('CBB-01', 'FashionStore Queru Queru', 3, 'Av. América 555'),
-    ('CBB-02', 'FashionStore Cala Cala', 3, 'Av. Pando 888'),
-    ('SRE-01', 'FashionStore Centro Histórico', 4, 'Plaza 25 de Mayo 50'),
-    ('TJA-01', 'FashionStore Comercial', 5, 'Av. Las Américas 200'),
-    ('ORU-01', 'FashionStore Feria Barrio Lindo', 6, 'Av. 6 de Octubre 300'),
+    ('SCZ-01', 'VETA Equipetrol', 0, 'Av. San Martín 1234'),
+    ('SCZ-02', 'VETA Las Brisas', 0, 'Av. Cristo Redentor 456'),
+    ('LPZ-01', 'VETA Sopocachi', 1, 'Calle 6 de Agosto 789'),
+    ('LPZ-02', 'VETA Zona Sur', 1, 'Av. Ballivián 321'),
+    ('ALT-01', 'VETA El Alto Centro', 2, 'Av. Juan Pablo II 100'),
+    ('CBB-01', 'VETA Queru Queru', 3, 'Av. América 555'),
+    ('CBB-02', 'VETA Cala Cala', 3, 'Av. Pando 888'),
+    ('SRE-01', 'VETA Centro Histórico', 4, 'Plaza 25 de Mayo 50'),
+    ('TJA-01', 'VETA Comercial', 5, 'Av. Las Américas 200'),
+    ('ORU-01', 'VETA Feria Barrio Lindo', 6, 'Av. 6 de Octubre 300'),
 ]
 
 CATEGORIES = [

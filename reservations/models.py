@@ -1,5 +1,5 @@
 """
-Reservation models for FashionStore.
+Reservation models for VETA.
 
 Allows customers to reserve products for in-store try-on.
 """

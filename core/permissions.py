@@ -1,5 +1,5 @@
 """
-Custom permissions for FashionStore API.
+Custom permissions for VETA API.
 """
 from rest_framework import permissions
 

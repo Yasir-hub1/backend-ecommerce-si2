@@ -1,5 +1,5 @@
 """
-Custom exceptions and exception handler for FashionStore API.
+Custom exceptions and exception handler for VETA API.
 """
 from django.db import IntegrityError
 from django.db.models.deletion import ProtectedError, RestrictedError

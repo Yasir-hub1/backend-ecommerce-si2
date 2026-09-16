@@ -1,5 +1,5 @@
 """
-Payment models for FashionStore.
+Payment models for VETA.
 
 Supports multiple payment methods including Stripe integration.
 """

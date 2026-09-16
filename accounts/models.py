@@ -1,5 +1,5 @@
 """
-User models and profiles for FashionStore.
+User models and profiles for VETA.
 """
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin

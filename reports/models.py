@@ -1,5 +1,5 @@
 """
-Report models for FashionStore.
+Report models for VETA.
 
 Stores report requests for audit and AI-generated reports.
 """

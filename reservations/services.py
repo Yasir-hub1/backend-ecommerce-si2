@@ -1,5 +1,5 @@
 """
-Reservation services for FashionStore.
+Reservation services for VETA.
 
 Handles reservation creation, transitions, cancellation, and expiration.
 """

@@ -1,5 +1,5 @@
 """
-Seed default permissions and system roles for FashionStore RBAC.
+Seed default permissions and system roles for VETA RBAC.
 """
 from django.db import migrations
 

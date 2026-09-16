@@ -1,5 +1,5 @@
 """
-AI and analytics models for FashionStore.
+AI and analytics models for VETA.
 
 Includes:
 - BrowsingEvent: User behavior tracking

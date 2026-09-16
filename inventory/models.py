@@ -1,5 +1,5 @@
 """
-Inventory models for FashionStore.
+Inventory models for VETA.
 
 Implements a dual-system:
 - BranchStock: transactional cache (current stock levels)

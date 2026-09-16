@@ -1,5 +1,5 @@
 """
-Custom pagination classes for FashionStore API.
+Custom pagination classes for VETA API.
 """
 from rest_framework.pagination import PageNumberPagination, CursorPagination
 

@@ -1,4 +1,4 @@
-# API POS — FashionStore
+# API POS — VETA
 
 Base URL: `/api/v1/pos/`
 

@@ -1,6 +1,6 @@
 # RBAC — Roles y Permisos (API)
 
-Documentación de los endpoints para gestionar el sistema de **Role-Based Access Control (RBAC)** de FashionStore.
+Documentación de los endpoints para gestionar el sistema de **Role-Based Access Control (RBAC)** de VETA.
 
 Base URL: `/api/v1/`
 

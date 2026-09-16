@@ -1,5 +1,5 @@
 """
-Order and Cart models for FashionStore.
+Order and Cart models for VETA.
 
 Unified order model for all channels: WEB, MOBILE, POS.
 """

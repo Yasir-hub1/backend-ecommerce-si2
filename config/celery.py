@@ -1,5 +1,5 @@
 """
-Celery configuration for FashionStore.
+Celery configuration for VETA.
 """
 import os
 from celery import Celery

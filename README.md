@@ -1,4 +1,4 @@
-# FashionStore Backend - Plataforma E-Commerce Multi-Sucursal
+# VETA Backend - Plataforma E-Commerce Multi-Sucursal
 
 Backend Django para plataforma de e-commerce de ropa con sucursales múltiples, probador virtual AR, y sistema de reservas.
 

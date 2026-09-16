@@ -1,5 +1,5 @@
 """
-Inventory services for FashionStore.
+Inventory services for VETA.
 
 This is the CORE of the transactional system.
 All inventory operations MUST go through these services.

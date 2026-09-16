@@ -1,4 +1,4 @@
-"""POS business logic for FashionStore."""
+"""POS business logic for VETA."""
 from __future__ import annotations
 
 from datetime import date

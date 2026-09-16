@@ -1,4 +1,4 @@
-# FashionStore — API CRUD Backoffice
+# VETA — API CRUD Backoffice
 
 Documentación de todos los endpoints REST para el panel administrativo (Angular) y consumo móvil/web.
 
@@ -121,7 +121,7 @@ Ver [`rbac-api.md`](./rbac-api.md) — `/permissions/`, `/roles/`, acciones de a
 ```json
 {
   "code": "SCZ-01",
-  "name": "FashionStore Equipetrol",
+  "name": "VETA Equipetrol",
   "city": 1,
   "address": "Av. San Martín 123",
   "phone": "+59170000001",
@@ -163,7 +163,7 @@ Lectura pública/autenticada. Escritura requiere `catalog.products.manage`.
 | GET/POST | `/size-groups/` | Grupos: ALPHA_TOP, WAIST_NUM, SHOE_EU… |
 | GET/POST | `/sizes/` | Tallas por grupo (`?group=1`) |
 
-**Flujo FashionStore:** la categoría referencia un `size_group`; las variantes combinan producto + talla + color.
+**Flujo VETA:** la categoría referencia un `size_group`; las variantes combinan producto + talla + color.
 
 ### Colores
 
