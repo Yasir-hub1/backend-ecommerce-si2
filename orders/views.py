@@ -7,7 +7,10 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from django_filters import FilterSet, DateFilter
-from django.db.models import Count, Sum, F, Q
+from decimal import Decimal
+
+from django.db.models import Count, Sum, F, Q, DecimalField, Value
+from django.db.models.functions import Coalesce
 from django.http import FileResponse, Http404
 
 from orders.models import Cart, CartItem, Order, OrderStatus
@@ -31,6 +34,36 @@ from orders.receipts import (
     receipt_number,
     user_can_access_order_receipt,
 )
+
+
+def _cart_subtotal_expr():
+    """Cart subtotal using variant effective_price (price_override ?? product.base_price)."""
+    unit_price = Coalesce(
+        F('items__variant__price_override'),
+        F('items__variant__product__base_price'),
+    )
+    return Coalesce(
+        Sum(F('items__quantity') * unit_price),
+        Value(Decimal('0')),
+        output_field=DecimalField(max_digits=12, decimal_places=2),
+    )
+
+
+def _annotated_cart(cart_id):
+    """Cart row with total_items / subtotal annotations and variant prefetch."""
+    return (
+        Cart.objects.filter(id=cart_id)
+        .annotate(
+            total_items=Count('items'),
+            subtotal=_cart_subtotal_expr(),
+        )
+        .prefetch_related(
+            'items__variant__product',
+            'items__variant__size',
+            'items__variant__color',
+        )
+        .first()
+    )
 
 
 def _resolve_cart_branch(request):
@@ -102,12 +135,7 @@ class CartViewSet(viewsets.ViewSet):
         # Get or create cart
         cart, created = Cart.objects.get_or_create(customer=customer)
 
-        # Annotate cart with totals
-        cart_data = Cart.objects.filter(id=cart.id).annotate(
-            total_items=Count('items'),
-            subtotal=Sum(F('items__quantity') * F('items__variant__product__base_price'))
-        ).prefetch_related('items__variant__product', 'items__variant__size', 'items__variant__color').first()
-
+        cart_data = _annotated_cart(cart.id)
         serializer = CartSerializer(cart_data, context=_cart_serializer_context(request, cart_data))
         return Response(serializer.data)
 
@@ -141,10 +169,7 @@ class CartViewSet(viewsets.ViewSet):
             cart_item.quantity += quantity
             cart_item.save()
 
-        cart_data = Cart.objects.filter(id=cart.id).annotate(
-            total_items=Count('items'),
-            subtotal=Sum(F('items__quantity') * F('items__variant__product__base_price'))
-        ).prefetch_related('items__variant__product', 'items__variant__size', 'items__variant__color').first()
+        cart_data = _annotated_cart(cart.id)
         cart_serializer = CartSerializer(cart_data, context=_cart_serializer_context(request, cart_data))
 
         return Response(
@@ -156,10 +181,7 @@ class CartViewSet(viewsets.ViewSet):
         )
 
     def _cart_response(self, request, cart_id):
-        cart_data = Cart.objects.filter(id=cart_id).annotate(
-            total_items=Count('items'),
-            subtotal=Sum(F('items__quantity') * F('items__variant__product__base_price'))
-        ).prefetch_related('items__variant__product', 'items__variant__size', 'items__variant__color').first()
+        cart_data = _annotated_cart(cart_id)
         serializer = CartSerializer(cart_data, context=_cart_serializer_context(request, cart_data))
         return Response(serializer.data)
 

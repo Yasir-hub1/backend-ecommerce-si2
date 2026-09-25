@@ -86,6 +86,11 @@ class CartItem(TimeStampedModel):
     def __str__(self):
         return f"{self.variant.sku} x{self.quantity}"
 
+    @property
+    def line_total(self):
+        """Line total using the variant's effective price (override or base)."""
+        return self.variant.effective_price * self.quantity
+
 
 # =============================================================================
 # ORDER

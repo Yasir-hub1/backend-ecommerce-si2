@@ -25,6 +25,7 @@ class ChatView(APIView):
             'reply': result['reply'],
             'suggestions': result.get('suggestions', []),
             'products': result.get('products', []),
+            'interpreted': result.get('interpreted'),
         })
 
 
